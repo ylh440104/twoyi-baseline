@@ -1,0 +1,113 @@
+name: Host regression tests
+
+on:
+  push:
+    paths:
+      - 'app/src/main/java/io/twoyi/**'
+      - 'app/rs/src/**'
+      - 'tools/**'
+      - '.github/workflows/host-tests.yml'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic-archive-budget:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Check diagnostic archive byte limits
+        run: |
+          mkdir -p "$RUNNER_TEMP/diagnostic-budget"
+          javac -d "$RUNNER_TEMP/diagnostic-budget" app/src/main/java/io/twoyi/utils/DiagnosticArchiveBudget.java tools/DiagnosticArchiveBudgetTest.java
+          java -cp "$RUNNER_TEMP/diagnostic-budget" io.twoyi.utils.DiagnosticArchiveBudgetTest
+
+  apk-copy-budget:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Check shared temporary APK storage budget
+        run: |
+          mkdir -p "$RUNNER_TEMP/apk-budget"
+          javac -d "$RUNNER_TEMP/apk-budget" app/src/main/java/io/twoyi/utils/ApkCopyBudget.java tools/ApkCopyBudgetTest.java
+          java -cp "$RUNNER_TEMP/apk-budget" io.twoyi.utils.ApkCopyBudgetTest
+
+  boot-state:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Test actual boot state class with Android API stubs
+        run: python3 tools/test_boot_state.py
+      - name: Verify ROM preflight rejects incomplete or oversized archives
+        run: |
+          mkdir -p "$RUNNER_TEMP/rom-tests"
+          javac -d "$RUNNER_TEMP/rom-tests" app/src/main/java/io/twoyi/utils/RomArchiveBudget.java tools/RomArchiveBudgetTest.java
+          java -cp "$RUNNER_TEMP/rom-tests" io.twoyi.utils.RomArchiveBudgetTest
+      - name: Check vendor property preservation
+        run: |
+          mkdir -p "$RUNNER_TEMP/rom-properties"
+          javac -encoding UTF-8 -d "$RUNNER_TEMP/rom-properties" app/src/main/java/io/twoyi/utils/AndroidPropertyFile.java tools/AndroidPropertyFileTest.java
+          java -cp "$RUNNER_TEMP/rom-properties" io.twoyi.utils.AndroidPropertyFileTest
+      - name: Verify interrupted ROM installation recovery
+        run: |
+          mkdir -p "$RUNNER_TEMP/rom-transaction"
+          javac -d "$RUNNER_TEMP/rom-transaction" app/src/main/java/io/twoyi/utils/RomInstallTransaction.java tools/RomInstallTransactionTest.java
+          java -cp "$RUNNER_TEMP/rom-transaction" io.twoyi.utils.RomInstallTransactionTest
+      - name: Verify APK installation and shutdown are mutually exclusive
+        run: |
+          mkdir -p "$RUNNER_TEMP/maintenance-tests"
+          javac -d "$RUNNER_TEMP/maintenance-tests" app/src/main/java/io/twoyi/utils/GuestMaintenance.java tools/GuestMaintenanceTest.java
+          java -cp "$RUNNER_TEMP/maintenance-tests" io.twoyi.utils.GuestMaintenanceTest
+      - name: Test window replacement callback ordering
+        run: |
+          mkdir -p "$RUNNER_TEMP/window-tests"
+          javac -d "$RUNNER_TEMP/window-tests" app/src/main/java/io/twoyi/WindowOwner.java tools/WindowOwnerTest.java
+          java -cp "$RUNNER_TEMP/window-tests" io.twoyi.WindowOwnerTest
+      - name: Verify legacy input paths and descriptor limits
+        run: |
+          mkdir -p "$RUNNER_TEMP/endpoint-tests"
+          javac -d "$RUNNER_TEMP/endpoint-tests" app/src/main/java/io/twoyi/GuestEndpoints.java tools/GuestEndpointsTest.java
+          java -cp "$RUNNER_TEMP/endpoint-tests" io.twoyi.GuestEndpointsTest
+
+  input-stream:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Test input forwarding without Android dependencies
+        run: |
+          rustc --edition=2021 --test app/rs/src/event_stream.rs -o "$RUNNER_TEMP/event-stream-tests"
+          timeout 20 "$RUNNER_TEMP/event-stream-tests"
+      - name: Test sparse pointer IDs and cancelled gestures
+        run: |
+          rustc --edition=2021 --test app/rs/src/touch_slots.rs -o "$RUNNER_TEMP/touch-slot-tests"
+          timeout 20 "$RUNNER_TEMP/touch-slot-tests"
+      - name: Test touch coordinates across window sizes
+        run: |
+          rustc --edition=2021 --test app/rs/src/touch_geometry.rs -o "$RUNNER_TEMP/touch-geometry-tests"
+          timeout 20 "$RUNNER_TEMP/touch-geometry-tests"
+      - name: Verify the legacy ARM64 input event layout
+        run: |
+          rustc --edition=2021 --test app/rs/src/input_wire.rs -o "$RUNNER_TEMP/input-wire-tests"
+          timeout 20 "$RUNNER_TEMP/input-wire-tests"
+      - name: Test navigation key mapping and complete event frames
+        run: |
+          rustc --edition=2021 --test app/rs/src/key_events.rs -o "$RUNNER_TEMP/key-event-tests"
+          timeout 20 "$RUNNER_TEMP/key-event-tests"

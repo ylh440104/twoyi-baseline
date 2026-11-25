@@ -1,0 +1,313 @@
+name: Android baseline build
+on:
+  push:
+    branches: [opensource-development]
+  workflow_dispatch:
+    inputs:
+      device_smoke:
+        description: 'Run ROM installation, storage and window tests on a dedicated ARM64 device runner'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  assemble:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          path: overlay
+      - name: Print source revision
+        working-directory: overlay
+        run: |
+          git status --short --branch
+          git log -1 --format='development=%H %s'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Fetch pinned upstream shallow source and apply development changes
+        run: |
+          git init source
+          git -C source remote add origin https://github.com/twoyi/twoyi.git
+          git -C source fetch --depth 1 origin dd052a07a812e742ec7583da393466ccc066a8b1
+          git -C source checkout --detach FETCH_HEAD
+          rsync -a --exclude=.git --exclude=.github overlay/ source/
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Obtain matching legacy ROM on runner only
+        working-directory: source
+        run: |
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/legacy.apk" https://github.com/twoyi/twoyi/releases/download/0.5.4/twoyi_0.5.4-03211927-release.apk
+          echo "ca5e25b3d1852c3b9df8f776f5798269de3c3c40fbf4b92c3768f483ee1a71b5  $RUNNER_TEMP/legacy.apk" | sha256sum --check
+          sha256sum "$RUNNER_TEMP/legacy.apk" | tee legacy-apk.sha256
+          mkdir -p app/src/main/assets
+          unzip -p "$RUNNER_TEMP/legacy.apk" assets/rootfs.7z > app/src/main/assets/rootfs.7z
+          unzip -p "$RUNNER_TEMP/legacy.apk" assets/rom.ini > app/src/main/assets/rom.ini
+          test -s app/src/main/assets/rootfs.7z
+      - name: Validate the bundled ROM with the installer preflight
+        working-directory: source
+        shell: bash
+        run: |
+          preflight_dir=$(mktemp -d "$RUNNER_TEMP/rom-preflight.XXXXXX")
+          maven=https://repo.maven.apache.org/maven2
+          compress=org/apache/commons/commons-compress/1.20/commons-compress-1.20.jar
+          xz=org/tukaani/xz/1.5/xz-1.5.jar
+          for dependency in "$compress" "$xz"; do
+            curl --fail --silent --show-error --retry 3 "$maven/$dependency" \
+              --output "$preflight_dir/${dependency##*/}"
+          done
+          mkdir -p app/build/reports
+          (
+            javac -encoding UTF-8 -cp "$preflight_dir/*" -d "$preflight_dir" \
+              app/src/main/java/io/twoyi/utils/RomArchiveBudget.java \
+              app/src/main/java/io/twoyi/utils/RomArchivePreflight.java \
+              tools/BundledRomPreflight.java &&
+            java -cp "$preflight_dir:$preflight_dir/*" io.twoyi.utils.BundledRomPreflight \
+              app/src/main/assets/rootfs.7z
+          ) 2>&1 | tee app/build/reports/rom-preflight.log
+      - name: Inventory legacy ROM hardware modules
+        working-directory: source
+        run: |
+          if ! command -v 7z >/dev/null; then
+            sudo apt-get update -q
+            sudo apt-get install -y p7zip-full
+          fi
+          mkdir -p app/build/reports
+          7z l -slt app/src/main/assets/rootfs.7z > "$RUNNER_TEMP/legacy-rom-entries.txt"
+          awk '/^Path = rootfs\// && ($0 ~ /\/lib(64)?\/hw\// || $0 ~ /\/etc\/init\/.*hardware/ || $0 ~ /init\.goldfish\.rc$/) {print substr($0, 8)}' "$RUNNER_TEMP/legacy-rom-entries.txt" > app/build/reports/legacy-hal-files.txt
+          if [[ ! -s app/build/reports/legacy-hal-files.txt ]]; then
+            echo 'No matching legacy HAL module paths found.'
+          fi
+          # Collect hardware declarations from the same ROM packaged in the APK.
+          for entry in rootfs/system/build.prop rootfs/vendor/build.prop rootfs/system/vendor/build.prop rootfs/init.goldfish.rc rootfs/system/etc/audio_policy.conf rootfs/system/etc/audio_policy_configuration.xml rootfs/vendor/etc/audio_policy_configuration.xml rootfs/system/vendor/etc/audio_policy_configuration.xml; do
+            if awk -v path="Path = $entry" '$0 == path { found = 1 } END { exit !found }' "$RUNNER_TEMP/legacy-rom-entries.txt"; then
+              output="app/build/reports/legacy-rom/${entry#rootfs/}"
+              mkdir -p "$(dirname "$output")"
+              7z x -so app/src/main/assets/rootfs.7z "$entry" > "$output"
+            fi
+          done
+      - name: Install pinned Android toolchain
+        run: sdkmanager 'platforms;android-31' 'build-tools;30.0.3' 'ndk;22.1.7171670'
+      - name: Compile Rust JNI with NDK directly
+        working-directory: source/app/rs
+        run: |
+          rustup toolchain install 1.60.0 --profile minimal --target aarch64-linux-android
+          export NDK_BIN="$ANDROID_HOME/ndk/22.1.7171670/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_BIN/aarch64-linux-android27-clang"
+          export CC_aarch64_linux_android="$CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER"
+          export AR_aarch64_linux_android="$NDK_BIN/llvm-ar"
+          cargo +1.60.0 build --locked --release --target aarch64-linux-android
+          cp target/aarch64-linux-android/release/libtwoyi.so ../src/main/jniLibs/arm64-v8a/
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'
+      - name: Generate a signed Android 8.1 import fixture
+        working-directory: source
+        shell: bash
+        run: |
+          tools="$ANDROID_HOME/build-tools/30.0.3"
+          fixture_dir=$(mktemp -d "$RUNNER_TEMP/guest-fixture.XXXXXX")
+          mkdir -p app/src/androidTest/assets
+          "$tools/aapt2" link -I "$ANDROID_HOME/platforms/android-31/android.jar" \
+            --manifest tools/guest-import-manifest.xml -o "$fixture_dir/unsigned.apk"
+          keytool -genkeypair -keystore "$fixture_dir/fixture.jks" -alias fixture \
+            -storepass android -keypass android -dname 'CN=Twoyi CI Fixture' \
+            -keyalg RSA -keysize 2048 -validity 30
+          fixture=app/src/androidTest/assets/guest-import-fixture.apk
+          "$tools/apksigner" sign --ks "$fixture_dir/fixture.jks" --ks-pass pass:android \
+            --out "$fixture" "$fixture_dir/unsigned.apk"
+          "$tools/apksigner" verify --min-sdk-version 27 --max-sdk-version 27 "$fixture"
+          "$tools/aapt2" link -I "$ANDROID_HOME/platforms/android-31/android.jar" \
+            --manifest tools/guest-import-split-manifest.xml -o "$fixture_dir/split-unsigned.apk"
+          split=app/src/androidTest/assets/guest-import-split.apk
+          "$tools/apksigner" sign --ks "$fixture_dir/fixture.jks" --ks-pass pass:android \
+            --out "$split" "$fixture_dir/split-unsigned.apk"
+          "$tools/apksigner" verify --min-sdk-version 27 --max-sdk-version 27 "$split"
+      - name: Assemble application and instrumentation APKs
+        working-directory: source
+        shell: bash
+        run: |
+          set -o pipefail
+          bash gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest \
+            -x cargoBuild --stacktrace 2>&1 | tee "$RUNNER_TEMP/gradle-build.log"
+      - name: Verify APK payload and signatures
+        working-directory: source
+        run: |
+          python3 tools/verify_apk.py
+          for apk in app/build/outputs/apk/debug/*.apk app/build/outputs/apk/androidTest/debug/*.apk; do
+            "$ANDROID_HOME/build-tools/30.0.3/apksigner" verify --verbose "$apk"
+          done
+          sha256sum app/build/outputs/apk/debug/*.apk app/build/outputs/apk/androidTest/debug/*.apk > app/build/reports/apk.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opensource-baseline-build
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            source/app/build/outputs/apk/debug/*.apk
+            source/app/build/outputs/apk/androidTest/debug/*.apk
+            source/legacy-apk.sha256
+            source/app/build/reports/
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: baseline-build-diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/gradle-build.log
+            source/app/build/reports/rom-preflight.log
+            source/legacy-apk.sha256
+            source/app/build/reports/legacy-hal-files.txt
+            source/app/build/reports/legacy-rom/
+
+  hosted-provider:
+    needs: assemble
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: opensource-baseline-build
+          path: packages
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Exercise the storage provider on a hosted Android emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          image='system-images;android-30;google_apis;x86_64'
+          sdkmanager emulator "$image"
+          echo no | avdmanager create avd --name provider-ci --package "$image" --force
+          sudo chmod a+rw /dev/kvm
+          "$ANDROID_HOME/emulator/emulator" -avd provider-ci -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          emulator_pid=$!
+          trap 'kill "$emulator_pid" 2>/dev/null || true' EXIT
+          export ANDROID_SERIAL=emulator-5554
+          timeout 360 bash -c 'adb wait-for-device && until [[ $(adb shell getprop sys.boot_completed | tr -d "\r") == 1 ]]; do sleep 2; done'
+          abis=$(adb shell getprop ro.product.cpu.abilist | tr -d '\r')
+          echo "Android guest-supported ABIs: $abis"
+          case ",$abis," in *,arm64-v8a,*) ;; *) echo 'System image lacks ARM64 app translation'; exit 1 ;; esac
+          shopt -s nullglob
+          app=(packages/app/build/outputs/apk/debug/*.apk)
+          tests=(packages/app/build/outputs/apk/androidTest/debug/*.apk)
+          [[ ${#app[@]} -eq 1 && ${#tests[@]} -eq 1 ]]
+          (cd packages && sha256sum --check app/build/reports/apk.sha256)
+          cp packages/app/build/reports/apk-packaging.json "$RUNNER_TEMP/device-apk-packaging.json"
+          adb install "${app[0]}"
+          adb install "${tests[0]}"
+          timeout 180 adb shell am instrument -w -e class io.twoyi.DocumentProjectionTest io.twoyi.test/androidx.test.runner.AndroidJUnitRunner | tee "$RUNNER_TEMP/provider-result.txt"
+          tr -d '\r' < "$RUNNER_TEMP/provider-result.txt" | grep -Fx 'OK (3 tests)'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hosted-provider-results
+          path: |
+            ${{ runner.temp }}/emulator.log
+            ${{ runner.temp }}/provider-result.txt
+            ${{ runner.temp }}/device-apk-packaging.json
+          retention-days: 7
+
+  window-device:
+    if: github.event_name == 'workflow_dispatch' && inputs.device_smoke && github.ref == 'refs/heads/opensource-development'
+    needs: assemble
+    runs-on: [self-hosted, twoyi-dedicated-test-device]
+    concurrency:
+      group: twoyi-dedicated-test-device
+      cancel-in-progress: false
+    timeout-minutes: 45
+    steps:
+      - name: Allocate a fresh directory for device artifacts
+        shell: bash
+        run: |
+          device_run_dir=$(mktemp -d "$RUNNER_TEMP/twoyi-device.XXXXXX")
+          echo "DEVICE_RUN_DIR=$device_run_dir" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v4
+        with:
+          name: opensource-baseline-build
+          path: ${{ env.DEVICE_RUN_DIR }}/packages
+      - name: Verify ROM replacement, storage and window recreation on a dedicated device
+        working-directory: ${{ env.DEVICE_RUN_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk=$(timeout 15 adb shell getprop ro.build.version.sdk | tr -d '\r')
+          abi=$(timeout 15 adb shell getprop ro.product.cpu.abi | tr -d '\r')
+          [[ "$abi" == arm64-v8a && "$sdk" =~ ^[0-9]+$ && "$sdk" -ge 27 && "$sdk" -le 30 ]]
+          installed_packages=$(timeout 30 adb shell pm list packages | tr -d '\r')
+          for pkg in io.twoyi io.twoyi.test; do
+            if grep -Fxq "package:$pkg" <<< "$installed_packages"; then
+              echo "Dedicated device must start without $pkg installed" >&2
+              exit 1
+            fi
+          done
+          shopt -s nullglob
+          app=(packages/app/build/outputs/apk/debug/*.apk)
+          tests=(packages/app/build/outputs/apk/androidTest/debug/*.apk)
+          [[ ${#app[@]} -eq 1 && ${#tests[@]} -eq 1 ]]
+          (cd packages && sha256sum --check app/build/reports/apk.sha256)
+          cp packages/app/build/reports/apk-packaging.json device-apk-packaging.json
+          python3 - <<'PY'
+          import json
+          import os
+
+          with open('device-apk-packaging.json', encoding='utf-8') as report:
+              source = json.load(report)['source']
+          if source['development_sha'] != os.environ['GITHUB_SHA']:
+              raise SystemExit('Device APK revision does not match the workflow revision')
+          if source['run_id'] != os.environ['GITHUB_RUN_ID']:
+              raise SystemExit('Device APKs did not come from this workflow run')
+          PY
+          app_installed=false
+          tests_installed=false
+          cleanup_device() {
+            local result=$1
+            if "$app_installed" && (( result != 0 )); then
+              timeout 10 adb exec-out run-as io.twoyi tail -c 131072 log.txt > guest-init-failure.log 2>&1 || true
+              timeout 10 adb logcat -d -t 1000 -s Render2Activity GuestSessionService TwoyiSocketServer CLIENT_EGL AndroidRuntime > host-failure.log 2>&1 || true
+            fi
+            if "$tests_installed"; then timeout 30 adb uninstall io.twoyi.test || true; fi
+            if "$app_installed"; then timeout 30 adb uninstall io.twoyi || true; fi
+            return "$result"
+          }
+          trap 'cleanup_device "$?"' EXIT
+          # Once installation is attempted, cleanup also covers a lost ADB reply.
+          app_installed=true
+          timeout 240 adb install "${app[0]}"
+          tests_installed=true
+          timeout 90 adb install "${tests[0]}"
+          for suite_and_count in ControlSocketTest:1 GuestNameTest:1 GuestApkAbiTest:1 InstallerReadinessTest:1 RomInstallationTest:1 DocumentProjectionTest:3 DiagnosticSharingTest:1 WindowRecreationTest:1; do
+            suite="io.twoyi.${suite_and_count%:*}"
+            expected="${suite_and_count##*:}"
+            report="$suite.txt"
+            case "$suite" in
+              io.twoyi.RomInstallationTest) suite_timeout=420 ;;
+              # Guest boot plus standalone, split, and rejected APK imports.
+              io.twoyi.WindowRecreationTest) suite_timeout=960 ;;
+              *) suite_timeout=90 ;;
+            esac
+            timeout "$suite_timeout" adb shell am instrument -w -e class "$suite" io.twoyi.test/androidx.test.runner.AndroidJUnitRunner | tee "$report"
+            tr -d '\r' < "$report" | grep -Ex "OK \($expected tests?\)"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: arm64-device-test-results
+          path: |
+            ${{ env.DEVICE_RUN_DIR }}/io.twoyi.*Test.txt
+            ${{ env.DEVICE_RUN_DIR }}/device-apk-packaging.json
+            ${{ env.DEVICE_RUN_DIR }}/guest-init-failure.log
+            ${{ env.DEVICE_RUN_DIR }}/host-failure.log
+          retention-days: 7

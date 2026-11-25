@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="guest_session_channel">Guest session</string>
+    <string name="guest_session_title">Twoyi session active</string>
+    <string name="guest_session_body">Tap to return. Use Settings to shut down.</string>
+    <string name="guest_boot_pending">Waiting for the guest system to finish starting…</string>
+    <string name="guest_shutdown_failed">Could not stop the guest system. Try shutting down again.</string>
+    <string name="guest_maintenance_busy">An installation or shutdown is in progress. Try again when it finishes.</string>
+    <string name="guest_install_requires_running">Open Twoyi and wait for the guest system to finish starting before installing apps.</string>
+    <string name="guest_retry_rom_preparation">Retry system preparation</string>
+    <string name="guest_rom_request_failed">Could not save the ROM installation request.</string>
+    <string name="guest_instance_name_title">Guest display name</string>
+    <string name="guest_instance_name_error">Enter a single line of up to 40 characters and try again.</string>
+    <string name="guest_named_session_title">%1$s session active</string>
+    <string name="guest_instance_status_title">Guest status</string>
+    <string name="guest_phase_stopped">Stopped</string>
+    <string name="guest_phase_starting">Starting</string>
+    <string name="guest_phase_running">Running</string>
+    <string name="guest_phase_failed">Failed</string>
+</resources>
