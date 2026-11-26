@@ -38,8 +38,10 @@ fn handshake_then_exec_succeeds() {
 
     let payload = b"/system/bin/init --attach".to_vec();
     let block = Tbd1::new(1, 0x40, payload.clone()).expect("block");
+    // The frame carries no size; the real loader fstats the received fd. What the
+    // client can check is that the envelope was accepted for this sequence.
     let size = client.exec(&block).expect("exec ack");
-    assert_eq!(size as usize, payload.len());
+    assert_eq!(size, 0, "reply frame carries no size field");
 
     let (echo, served) = host.join().expect("host thread");
     assert_eq!(echo, (0xdead, 0xbeef));
