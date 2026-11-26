@@ -14,6 +14,36 @@ permissions:
   contents: read
 
 jobs:
+  pure-java-compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Compile every Android-free main class together
+        run: |
+          mkdir -p "$RUNNER_TEMP/pure-java"
+          javac -Xlint:all -encoding UTF-8 -d "$RUNNER_TEMP/pure-java" \
+            app/src/main/java/io/twoyi/GuestEndpoints.java \
+            app/src/main/java/io/twoyi/GuestSlot.java \
+            app/src/main/java/io/twoyi/GuestSlotLayout.java \
+            app/src/main/java/io/twoyi/GuestSlotSelection.java \
+            app/src/main/java/io/twoyi/GuestInstanceRegistry.java \
+            app/src/main/java/io/twoyi/HalConnectionRegistry.java \
+            app/src/main/java/io/twoyi/WindowOwner.java \
+            app/src/main/java/io/twoyi/utils/RomInstallTransaction.java \
+            app/src/main/java/io/twoyi/utils/RomArchiveBudget.java \
+            app/src/main/java/io/twoyi/utils/GuestMaintenance.java \
+            app/src/main/java/io/twoyi/utils/GuestDataWipe.java \
+            app/src/main/java/io/twoyi/utils/ApkCopyBudget.java \
+            app/src/main/java/io/twoyi/utils/DiagnosticArchiveBudget.java \
+            app/src/main/java/io/twoyi/utils/AndroidPropertyFile.java
+
   diagnostic-archive-budget:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -96,7 +126,7 @@ jobs:
       - name: Verify guest instance registry
         run: |
           mkdir -p "$RUNNER_TEMP/instance-registry-tests"
-          javac -d "$RUNNER_TEMP/instance-registry-tests" app/src/main/java/io/twoyi/GuestSlot.java app/src/main/java/io/twoyi/GuestInstanceRegistry.java tools/GuestInstanceRegistryTest.java
+          javac -d "$RUNNER_TEMP/instance-registry-tests" app/src/main/java/io/twoyi/GuestEndpoints.java app/src/main/java/io/twoyi/GuestSlotSelection.java app/src/main/java/io/twoyi/GuestSlotLayout.java app/src/main/java/io/twoyi/GuestSlot.java app/src/main/java/io/twoyi/GuestInstanceRegistry.java tools/GuestInstanceRegistryTest.java
           java -cp "$RUNNER_TEMP/instance-registry-tests" io.twoyi.GuestInstanceRegistryTest
       - name: Verify per-slot guest directory layout
         run: |
