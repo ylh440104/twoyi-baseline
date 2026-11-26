@@ -52,10 +52,16 @@ public final class GuestEndpoints {
     }
 
     /**
-     * Slot 0 keeps the exact legacy abstract socket names so the shipped ROM
-     * still finds the control and HAL endpoints. Additional slots get names
-     * suffixed with their index, because two abstract listeners with the same
-     * name cannot coexist in one device.
+     * Endpoints for one slot. All slots keep the exact legacy abstract socket
+     * names: the control and HAL names are compiled into the shipped ROM's
+     * loader, so a suffixed name would leave the guest talking to nothing and
+     * boot never reporting completion.
+     *
+     * The consequence is deliberate and documented: two guests cannot share one
+     * device namespace under these names, so only one guest may run at a time
+     * until the per-slot control channel exists. Slot isolation therefore covers
+     * files (rootfs, log, input devices) and is enforced by the start gate, not
+     * by renaming sockets.
      */
     public static GuestEndpoints forSlot(int slot, File dataDir) {
         Objects.requireNonNull(dataDir, "dataDir");
@@ -65,14 +71,13 @@ public final class GuestEndpoints {
         }
         File rootfs = new File(dataDir, "rootfs");
         File inputDir = new File(new File(rootfs, "dev"), "input");
-        String suffix = slot == 0 ? "" : Integer.toString(slot);
         return new GuestEndpoints(
                 rootfs.getAbsolutePath(),
                 new File(dataDir, "log.txt").getAbsolutePath(),
                 new File(inputDir, "touch").getAbsolutePath(),
                 new File(inputDir, "key0").getAbsolutePath(),
-                DEFAULT_CONTROL_SOCKET + suffix,
-                DEFAULT_HAL_SOCKET + suffix
+                DEFAULT_CONTROL_SOCKET,
+                DEFAULT_HAL_SOCKET
         );
     }
 

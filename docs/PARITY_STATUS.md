@@ -27,9 +27,9 @@
 | 前台服务类型 `specialUse` | 未实现 | 需要 compileSdk 34，本树为 31 |
 | 后台屏 `HostBackdropActivity` | 未实现 | 需要在 `:guest0` 里持有 Surface 并驱动后台任务 |
 | ROM 载体 `rootfs.tar.zst` | 未实现 | 最新版只接受 direct USTAR + zstd；本树仍是 `rootfs.7z` + libp7zip |
-| Binder 控制面（`INSTANCE_ID` 选槽） | 未实现 | 本树仍是抽象 socket `TWOYI_SOCK` 文本命令 |
+| Binder 控制面（`INSTANCE_ID` 选槽） | 未实现 | 本树仍是抽象 socket `TWOYI_SOCK` 文本命令。该名称编译在 ROM 的 loader 里，**不能按槽改名**，否则来宾连不上监听、启动永远收不到完成通知；因此当前同名 socket 意味着同一时刻只能有一个来宾在跑。真正的多实例必须先做 Binder 或改来宾侧 |
 | Compose + Material 3 界面 | 未实现 | 最新版整体重写；本树是 AppCompat + XML |
-| 四实例真实并存 | 未实现 | 槽位/路径/端点已隔离，但同一进程仍是单来宾 |
+| 四实例真实并存 | 未实现 | 文件层面（rootfs、日志、输入设备）已按槽隔离并有回归；socket 名必须共用，所以并存需要新的控制通道，且同一进程仍是单来宾 |
 
 ## 三、为什么硬件桥接停在证据阶段
 

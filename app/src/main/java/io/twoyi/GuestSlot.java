@@ -57,7 +57,12 @@ public final class GuestSlot {
     public GuestEndpoints getEndpoints() { return endpoints; }
     public String getProcessName() { return PROCESS_PREFIX + index; }
 
-    /** Distinct slots must never resolve to the same guest directory or sockets. */
+    /**
+     * Distinct slots must never resolve to the same guest files. Socket names are
+     * intentionally identical across slots: they are compiled into the shipped
+     * ROM, so isolation has to come from directories, and only one guest may run
+     * at a time until a per-slot control channel exists.
+     */
     public static void requireDistinct(GuestSlot... slots) {
         for (int i = 0; i < slots.length; i++) {
             for (int j = i + 1; j < slots.length; j++) {

@@ -30,15 +30,19 @@ public final class GuestEndpointsTest {
                 || !slot0.getHalSocketName().equals("twoyi_hal")) {
             throw new AssertionError("slot 0 socket names changed");
         }
+        // Every slot keeps the ROM's compiled-in socket names; only files differ.
         for (int slot = 1; slot < 4; slot++) {
             GuestEndpoints guarded = GuestEndpoints.forSlot(slot, new File("/data/data/io.twoyi"));
-            if (guarded.getControlSocketName().equals("TWOYI_SOCK")
-                    || guarded.getHalSocketName().equals("twoyi_hal")) {
-                throw new AssertionError("slot " + slot + " reuses the legacy socket name");
+            if (!guarded.getControlSocketName().equals(slot0.getControlSocketName())
+                    || !guarded.getHalSocketName().equals(slot0.getHalSocketName())) {
+                throw new AssertionError("slot " + slot + " renamed the ROM's socket");
             }
-            if (!guarded.getControlSocketName().equals("TWOYI_SOCK" + slot)
-                    || !guarded.getHalSocketName().equals("twoyi_hal" + slot)) {
-                throw new AssertionError("slot " + slot + " socket name unexpected");
+            File slotBase = new File("/data/data/io.twoyi/slots/" + slot);
+            if (!guarded.getRootfsDir().equals(new File(slotBase, "rootfs").getAbsolutePath())) {
+                throw new AssertionError("slot " + slot + " rootfs not isolated");
+            }
+            if (guarded.equals(slot0)) {
+                throw new AssertionError("slot " + slot + " shares files with slot 0");
             }
         }
         rejects(() -> GuestEndpoints.forSlot(-1, new File("/data/data/io.twoyi")));

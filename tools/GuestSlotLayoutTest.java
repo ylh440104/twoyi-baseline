@@ -51,8 +51,14 @@ public final class GuestSlotLayoutTest {
             if (!third.getEndpoints().getRootfsDir().equals(new File(new File(data, "slots/2"), "rootfs").getAbsolutePath())) {
                 throw new AssertionError("slot 2 rootfs not resolved through the layout");
             }
-            if (third.getEndpoints().getControlSocketName().equals(legacy.getEndpoints().getControlSocketName())) {
-                throw new AssertionError("slots share a control socket name");
+            // The ROM's socket names are compiled in, so every slot keeps them and
+            // isolation comes from files; only one guest may run at a time.
+            if (!third.getEndpoints().getControlSocketName()
+                    .equals(legacy.getEndpoints().getControlSocketName())) {
+                throw new AssertionError("slot renamed the ROM's control socket");
+            }
+            if (third.getEndpoints().getRootfsDir().equals(legacy.getEndpoints().getRootfsDir())) {
+                throw new AssertionError("slots share a rootfs");
             }
             // The payload-driven overloads must agree with the explicit slot path.
             if (!GuestSlotLayout.baseDirectory(null, data).equals(data)
