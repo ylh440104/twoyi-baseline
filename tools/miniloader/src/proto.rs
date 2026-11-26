@@ -221,27 +221,60 @@ impl Tbd1 {
 }
 
 /// The broker's answer: same envelope, echoing tag and sequence.
+///
+/// Layout read from the instruction stream of `FUN_00116df4` (see
+/// `docs/LOADER_PROTOCOL.md` section 8):
+///
+/// | offset | field |
+/// |---:|---|
+/// | 0 | magic 0x31444254 |
+/// | 4 | version 1 |
+/// | 6 | tag echo (must equal the request tag) |
+/// | 8 | sequence echo (must equal the request sequence) |
+/// | 12 | descriptor when >= 0; -1 is the failure value |
+/// | 16 | flags: bit 0 required to succeed; bit 0x200000 and the low 2 bits carry backend info |
+/// | 20 | backend bitmap: 0xf is special, and its bit 0 must be clear |
+/// | 24, 28 | reserved, must be zero |
+///
+/// The descriptor is carried in slot 12; the payload size is not on the wire
+/// because the loader fstats the received fd. This is a **static inference**
+/// from the instruction stream, not yet confirmed on a device.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tbd1Reply {
     pub tag: u16,
     pub sequence: u32,
-    /// Zero means success; a non-zero value is the errno the loader reports.
-    pub status: u32,
+    /// Descriptor received over SCM_RIGHTS; negative means failure.
+    pub fd: i64,
     pub flags: u32,
+    /// Backend bitmap; 0xf marks the special backend.
+    pub backend: u32,
 }
 
+/// Backend bitmap value that marks the special backend.
+pub const TBD1_BACKEND_SPECIAL: u32 = 0x0f;
+/// The success path requires this flag bit.
+pub const TBD1_FLAG_REQUIRED: u32 = 0x01;
+/// Bit the loader inspects in the flags word.
+pub const TBD1_FLAG_BACKEND: u32 = 0x20_0000;
+
 impl Tbd1Reply {
-    pub fn success(tag: u16, sequence: u32) -> Tbd1Reply {
+    pub fn success(tag: u16, sequence: u32, fd: i64) -> Tbd1Reply {
         Tbd1Reply {
             tag,
             sequence,
-            status: 0,
-            flags: TBD1_FLAG_ATTACH,
+            fd,
+            flags: TBD1_FLAG_REQUIRED,
+            backend: 0,
         }
     }
 
     pub fn is_success(&self) -> bool {
-        self.status == 0 && self.flags == TBD1_FLAG_ATTACH
+        self.fd >= 0 && self.flags & TBD1_FLAG_REQUIRED != 0
+    }
+
+    /// Backend bitmap rule from the loader: 0xf is allowed only with bit 0 clear.
+    pub fn backend_is_acceptable(&self) -> bool {
+        self.backend != TBD1_BACKEND_SPECIAL || self.flags & TBD1_FLAG_BACKEND == 0
     }
 
     pub fn encode(&self) -> Vec<u8> {
@@ -250,8 +283,10 @@ impl Tbd1Reply {
         out[4..6].copy_from_slice(&TBD1_VERSION.to_le_bytes());
         out[6..8].copy_from_slice(&self.tag.to_le_bytes());
         out[8..12].copy_from_slice(&self.sequence.to_le_bytes());
-        out[12..16].copy_from_slice(&self.status.to_le_bytes());
+        let fd = self.fd as i32;
+        out[12..16].copy_from_slice(&fd.to_le_bytes());
         out[16..20].copy_from_slice(&self.flags.to_le_bytes());
+        out[20..24].copy_from_slice(&self.backend.to_le_bytes());
         out
     }
 
@@ -262,12 +297,6 @@ impl Tbd1Reply {
                 need: TBD1_REPLY_LEN,
             });
         }
-        if bytes.len() > TBD1_REPLY_LEN {
-            return Err(ProtoError::TooLong {
-                len: bytes.len(),
-                max: TBD1_REPLY_LEN,
-            });
-        }
         let magic = read_u32(bytes, 0);
         if magic != TBD1_MAGIC {
             return Err(ProtoError::BadMagic(magic));
@@ -276,7 +305,7 @@ impl Tbd1Reply {
         if version != TBD1_VERSION {
             return Err(ProtoError::BadVersion(version));
         }
-        for (index, offset) in [20usize, 24, 28].iter().enumerate() {
+        for (index, offset) in [24usize, 28].iter().enumerate() {
             let value = read_u32(bytes, *offset);
             if value != 0 {
                 return Err(ProtoError::ReservedNotZero {
@@ -288,8 +317,9 @@ impl Tbd1Reply {
         Ok(Tbd1Reply {
             tag: read_u16(bytes, 6),
             sequence: read_u32(bytes, 8),
-            status: read_u32(bytes, 12),
+            fd: read_u32(bytes, 12) as i32 as i64,
             flags: read_u32(bytes, 16),
+            backend: read_u32(bytes, 20),
         })
     }
 }

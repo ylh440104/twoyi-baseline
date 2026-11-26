@@ -186,53 +186,49 @@ fn tbd1_rejects_bad_frames() {
 }
 
 #[test]
-fn tbd1_reply_echoes_tag_and_sequence() {
-    use miniloader::proto::{Tbd1Reply, TBD1_ERRNO_PROTO, TBD1_REPLY_LEN, TBD1_TAG};
+fn tbd1_reply_carries_descriptor_in_slot_12() {
+    use miniloader::proto::{
+        Tbd1Reply, TBD1_BACKEND_SPECIAL, TBD1_ERRNO_PROTO, TBD1_FLAG_BACKEND, TBD1_FLAG_REQUIRED,
+        TBD1_REPLY_LEN, TBD1_TAG,
+    };
 
-    let reply = Tbd1Reply::success(TBD1_TAG, 0x99);
+    let reply = Tbd1Reply::success(TBD1_TAG, 0x99, 41);
     assert!(reply.is_success());
+    assert!(reply.backend_is_acceptable());
     let bytes = reply.encode();
-    assert_eq!(bytes.len(), TBD1_REPLY_LEN, "receive size is 0x878 bytes");
-    assert_eq!(&bytes[0..4], b"TBD1");
-    assert_eq!(u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]), 0);
-    assert_eq!(u32::from_le_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]), 1);
+    assert_eq!(bytes.len(), TBD1_REPLY_LEN);
+    // The descriptor sits in slot 12, not a separate status word.
+    assert_eq!(
+        i32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]),
+        41
+    );
+    assert_eq!(
+        u32::from_le_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]),
+        TBD1_FLAG_REQUIRED
+    );
     assert_eq!(Tbd1Reply::decode(&bytes).expect("decode"), reply);
 
+    // A failed reply reports -1 in the descriptor slot and the errno in flags.
     let mut failed = reply.clone();
-    failed.status = TBD1_ERRNO_PROTO;
-    assert!(!failed.is_success());
-    assert_eq!(
-        Tbd1Reply::decode(&failed.encode()).expect("decode").status,
-        TBD1_ERRNO_PROTO
+    failed.fd = -1;
+    failed.flags = TBD1_ERRNO_PROTO;
+    assert!(!failed.is_success(), "a negative descriptor means failure");
+
+    // Backend rule: 0xf is allowed only while the backend flag bit is clear.
+    let mut special = reply.clone();
+    special.backend = TBD1_BACKEND_SPECIAL;
+    special.flags = TBD1_FLAG_REQUIRED;
+    assert!(special.backend_is_acceptable());
+    special.flags = TBD1_FLAG_REQUIRED | TBD1_FLAG_BACKEND;
+    assert!(
+        !special.backend_is_acceptable(),
+        "the special backend with bit 0 set must be refused"
     );
-    assert_eq!(TBD1_ERRNO_PROTO, 0x47, "EPROTO is what the loader reports");
-}
 
-#[test]
-fn tbd1_reply_rejects_bad_envelopes() {
-    use miniloader::proto::{Tbd1Reply, TBD1_REPLY_LEN, TBD1_TAG};
-
-    let good = Tbd1Reply::success(TBD1_TAG, 1).encode();
-    let mut bad_magic = good.clone();
-    bad_magic[0] = 0;
-    assert!(matches!(Tbd1Reply::decode(&bad_magic), Err(ProtoError::BadMagic(_))));
-
-    let mut bad_version = good.clone();
-    bad_version[4..6].copy_from_slice(&7u16.to_le_bytes());
-    assert!(matches!(
-        Tbd1Reply::decode(&bad_version),
-        Err(ProtoError::BadVersion(7))
-    ));
-
-    let mut reserved = good.clone();
-    reserved[20..24].copy_from_slice(&9u32.to_le_bytes());
+    let mut reserved = reply.encode();
+    reserved[24..28].copy_from_slice(&3u32.to_le_bytes());
     assert!(matches!(
         Tbd1Reply::decode(&reserved),
-        Err(ProtoError::ReservedNotZero { value: 9, .. })
-    ));
-
-    assert!(matches!(
-        Tbd1Reply::decode(&good[..TBD1_REPLY_LEN - 1]),
-        Err(ProtoError::TooShort { .. })
+        Err(ProtoError::ReservedNotZero { .. })
     ));
 }

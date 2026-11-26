@@ -117,10 +117,10 @@ impl<S: Read + Write> HandshakeClient<S> {
                 reply.sequence, block.sequence
             )));
         }
-        if !reply.is_success() {
+        if !reply.is_success() || !reply.backend_is_acceptable() {
             return Err(ChannelError::Unexpected(format!(
-                "broker refused the exec with status {}",
-                reply.status
+                "broker refused the exec: fd={} flags=0x{:x} backend=0x{:x}",
+                reply.fd, reply.flags, reply.backend
             )));
         }
         Ok(reply.sequence)
@@ -182,7 +182,7 @@ impl<S: Read + Write> Broker<S> {
             )));
         }
         self.next_sequence = block.sequence.wrapping_add(1);
-        let reply = Tbd1Reply::success(TBD1_TAG, block.sequence);
+        let reply = Tbd1Reply::success(TBD1_TAG, block.sequence, 0);
         self.stream.write_all(&reply.encode())?;
         self.stream.flush()?;
         Ok(ServedExec {
