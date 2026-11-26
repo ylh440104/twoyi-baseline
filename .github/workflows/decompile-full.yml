@@ -1,0 +1,139 @@
+name: Full decompile of the newest APK
+
+# Decompiles the official 0.7.5 APK on the runner and publishes a digest plus the
+# full jadx tree as a short-lived artifact. Only the digest is committed; the
+# decompiled proprietary sources are never added to the repository.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/decompile-full.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  decompile:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Download and verify the APK
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/twoyi.apk" \
+            https://dl.twoyi.ai/twoyi_0.7.5-11131322.apk
+          echo "86ed3afaa447104f131d906c42ed8a07e207959c7869fda54bd245f62db14f4e  $RUNNER_TEMP/twoyi.apk" \
+            | sha256sum --check
+          unzip -l "$RUNNER_TEMP/twoyi.apk" | tail -5 || true
+      - name: Fetch jadx and apktool
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/tools"
+          mkdir -p "$tools"
+          curl --fail --location --retry 3 -o "$tools/jadx.zip" \
+            https://github.com/skylot/jadx/releases/download/v1.4.7/jadx-1.4.7.zip
+          unzip -q "$tools/jadx.zip" -d "$tools/jadx"
+          chmod +x "$tools/jadx/bin/jadx"
+          curl --fail --location --retry 3 -o "$tools/apktool.jar" \
+            https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar
+          ls -l "$tools" "$tools/jadx/bin" || true
+      - name: Decompile to Java
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/jadx-out"
+          mkdir -p "$out"
+          "$RUNNER_TEMP/tools/jadx/bin/jadx" --no-res --threads-count 4 \
+            --output-dir "$out" "$RUNNER_TEMP/twoyi.apk" > "$RUNNER_TEMP/jadx.log" 2>&1 || true
+          tail -20 "$RUNNER_TEMP/jadx.log" || true
+          echo "java files: $(find "$out" -name '*.java' | wc -l)"
+      - name: Decode resources with apktool
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/apktool-out"
+          java -jar "$RUNNER_TEMP/tools/apktool.jar" d -f -s \
+            -o "$out" "$RUNNER_TEMP/twoyi.apk" > "$RUNNER_TEMP/apktool.log" 2>&1 || true
+          tail -10 "$RUNNER_TEMP/apktool.log" || true
+      - name: Inventories and cross references
+        run: |
+          set -euo pipefail
+          jadx="$RUNNER_TEMP/jadx-out/sources"
+          digest="$RUNNER_TEMP/digest.md"
+          inventory="$RUNNER_TEMP/io-twoyi-inventory.txt"
+          hits="$RUNNER_TEMP/key-string-hits.txt"
+          {
+            echo "# io.twoyi inventory"
+            find "$jadx/io/twoyi" -name '*.java' 2>/dev/null | while read -r f; do
+              printf '%6s %s\n' "$(grep -c '' "$f")" "${f#$jadx/}"
+            done | sort -rn || true
+            echo
+            echo "# twin / ui / hal packages"
+            find "$jadx/io/twoyi" -maxdepth 3 -type d 2>/dev/null | sed "s|$jadx/||" || true
+          } > "$inventory"
+          {
+            for needle in TWOYI_SOCK INSTANCE_ID loadLibrary watchForExit waitForExit \
+                          rootfs.tar.zst rootfs_3rd.zst hwcomposer Shizuku KernelSU \
+                          'prepare(' SurfaceControl startForeground; do
+              echo "## $needle"
+              grep -rl --include='*.java' -F "$needle" "$jadx" 2>/dev/null | sed "s|$jadx/||" | head -20 || true
+              echo
+            done
+          } > "$hits"
+          {
+            echo "# APK top-level packages"
+            find "$jadx" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed "s|$jadx/||" | wc -l
+            echo
+            echo "# classes per top-level package (top 25)"
+            for d in "$jadx"/*/; do
+              printf '%6s %s\n' "$(find "$d" -name '*.java' | wc -l)" "$(basename "$d")"
+            done | sort -rn | head -25 || true
+            echo
+            echo "# io.twoyi class count"
+            find "$jadx/io/twoyi" -name '*.java' 2>/dev/null | wc -l
+          } > "$digest"
+          cat "$digest"
+      - name: Native libraries
+        run: |
+          set -euo pipefail
+          libs="$RUNNER_TEMP/libs"
+          mkdir -p "$libs"
+          unzip -o -j "$RUNNER_TEMP/twoyi.apk" 'lib/arm64-v8a/*.so' -d "$libs" >/dev/null
+          symbols="$RUNNER_TEMP/native-symbols.txt"
+          {
+            for so in "$libs"/*.so; do
+              echo "## $(basename "$so") $(stat -c %s "$so") bytes"
+              readelf -h "$so" 2>/dev/null | grep -E 'Class|Machine|Type' || true
+              echo "exported symbols: $(nm -D --defined-only "$so" 2>/dev/null | wc -l)"
+              nm -D --defined-only "$so" 2>/dev/null | awk '{print $3}' | grep -E '^(Java_|JNI_|twoyi|loader|main|init)' | head -30 || true
+              echo
+            done
+          } > "$symbols"
+          cat "$symbols"
+      - name: Build artifact bundle
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          # The full tree is an artifact only, kept short so it never lands in git.
+          tar -C "$RUNNER_TEMP/jadx-out" -cf - sources 2>/dev/null | zstd -q -3 -o jadx-sources.tar.zst || \
+            tar -C "$RUNNER_TEMP/jadx-out" -czf jadx-sources.tar.gz sources
+          du -sh jadx-sources.tar.* || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: newest-decompile
+          if-no-files-found: warn
+          retention-days: 3
+          path: |
+            ${{ runner.temp }}/digest.md
+            ${{ runner.temp }}/io-twoyi-inventory.txt
+            ${{ runner.temp }}/key-string-hits.txt
+            ${{ runner.temp }}/native-symbols.txt
+            ${{ runner.temp }}/jadx.log
+            ${{ runner.temp }}/jadx-sources.tar.*
