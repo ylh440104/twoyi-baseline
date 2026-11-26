@@ -54,6 +54,12 @@ public final class GuestSelfCheck {
                 }
             }
         }
+        String crash = CrashDiary.lastReport(app);
+        if (crash != null) {
+            lines.add("");
+            lines.add("--- last crash ---");
+            lines.add(truncate(crash, 4000));
+        }
         lines.add(failures == 0 ? "RESULT: all checks passed" : "RESULT: " + failures + " check(s) failed");
         return String.join("\n", lines);
     }
@@ -189,6 +195,10 @@ public final class GuestSelfCheck {
             failures += expect(true, lines, "the data directory itself is refused", "");
         }
         return failures;
+    }
+
+    private static String truncate(String text, int max) {
+        return text.length() <= max ? text : text.substring(0, max) + "\n[truncated]";
     }
 
     private static int expect(boolean condition, List<String> lines, String ok, String failure) {

@@ -41,17 +41,37 @@ public class TwoyiApplication extends Application {
     protected void attachBaseContext(Context base) {
         super.attachBaseContext(base);
 
+        // First statement: capture a crash that happens before any UI exists.
+        CrashDiary.install(base);
+
         RomManager.ensureBootFiles(base);
+        startGuestEndpoints(base);
+    }
 
-        // Resolve the served slot once so every consumer agrees on paths and
-        // socket names. A malformed payload throws here, before any listener binds.
-        GuestProcessProfile.initialize(base);
-
-        // Bind the control listener under the slot's own abstract name before
-        // anything can start the guest. Slot 0 keeps the legacy name.
+    /**
+     * Slot resolution must never be able to keep the app from starting. A failure
+     * here falls back to the legacy slot 0 configuration and is recorded for the
+     * self check instead of crashing the process.
+     */
+    private void startGuestEndpoints(Context base) {
+        try {
+            // Resolve the served slot once so every consumer agrees on paths and
+            // socket names. A malformed payload throws here, before any listener binds.
+            GuestProcessProfile.initialize(base);
+        } catch (RuntimeException unresolved) {
+            android.util.Log.e("TwoyiApplication", "guest slot resolution failed; using slot 0", unresolved);
+            CrashDiary.record(this, Thread.currentThread(), unresolved);
+        }
         TwoyiSocketServer server = TwoyiSocketServer.getInstance(base);
-        server.configureControlSocketName(GuestProcessProfile.endpoints(base.getDataDir()).getControlSocketName());
-        TwoyiMessenger.getInstance().configureControlSocketName(server.getControlSocketName());
+        try {
+            // Slot 0 keeps the legacy name the shipped ROM was built around.
+            server.configureControlSocketName(
+                    GuestProcessProfile.endpoints(base.getDataDir()).getControlSocketName());
+            TwoyiMessenger.getInstance().configureControlSocketName(server.getControlSocketName());
+        } catch (RuntimeException configured) {
+            android.util.Log.e("TwoyiApplication", "control socket configuration failed", configured);
+            CrashDiary.record(this, Thread.currentThread(), configured);
+        }
         server.start();
     }
 
