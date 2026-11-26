@@ -139,6 +139,15 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 最新版 ROM 实测
+
+- 云端 `rom-inspect` 任务（run 45812271640）下载官方 0.7.5 APK 并解出 `assets/rootfs.tar.zst`：212,205,950 字节 → 626,176,000 字节，单 zstd 帧（64 MiB 窗口、XXH64）+ 2 个 skippable 帧，其中一个是 JSON `bomVersion` 物料清单。
+- 载荷为归一化的 USTAR tar（uid/gid 全 0、时间戳 1970），顶层仅 `rootfs/`，2077 条目、1553 文件、332 符号链接、577 ELF。
+- 构建标识 `Android/twoyi_arm64/twoyi_arm64:8.1.0/OC/builde11130054:user/test-keys`：AOSP 8.1.0 arm64、user、test-keys，产品名 `twoyi_arm64`；`init` 在根目录、vendor 在 `/system/vendor`（system-as-root）。
+- 专有部分仅 `hwcomposer.twoyi.so` 与改过的硬件能力声明；其余 HAL 为 goldfish 系，共 31 个模块。
+- 结论与可行性分层写入 `docs/ROM_FORMAT.md`：重打包可行、AOSP 派生可行但成本高、“无内核运行”依赖闭源 `libloader.so`，不重写它无法产出等价自有 ROM。
+- APK 与 ROM 内容均未入库，只保留报告。
+
 ## 转向最新版 UI 栈（Compose + Material 3）
 
 - 按用户要求，不再以 0.5.4 界面为目标。构建体系已加入 Kotlin 1.6.10 + Compose 编译器 1.1.1 + Compose 1.1.1 + Material3 1.0.0-alpha11，云端 `assembleDebug` 通过（run 45808288015）。
