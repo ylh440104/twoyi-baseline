@@ -42,6 +42,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
+import io.twoyi.GuestInstanceGate;
 import io.twoyi.GuestInstanceInstaller;
 import io.twoyi.GuestInstanceManager;
 import io.twoyi.GuestInstanceRegistry;
@@ -153,6 +154,58 @@ public class SettingsActivity extends AppCompatActivity {
                 if (!registry.instances().contains(candidate)) return candidate;
             }
             throw new IllegalStateException("No free instance name");
+        }
+
+        private void chooseInstanceToActivate() {
+            Activity activity = getActivity();
+            if (activity == null) return;
+            Context app = activity.getApplicationContext();
+            UIHelper.defer().when(() -> GuestInstanceRegistry.load(
+                    GuestInstanceRegistry.defaultPath(app.getDataDir().toPath())).instances()
+            ).done(ids -> {
+                if (getActivity() != activity) return;
+                if (ids.isEmpty()) {
+                    Toast.makeText(app, R.string.guest_instances_empty, Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                new AlertDialog.Builder(activity)
+                        .setTitle(R.string.guest_instance_activate)
+                        .setItems(ids.toArray(new String[0]),
+                                (dialog, which) -> activateInstance(activity, ids.get(which)))
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .show();
+            }).fail(failure -> {
+                if (getActivity() != activity) return;
+                Toast.makeText(app, app.getString(R.string.guest_instances_unreadable, failure.getMessage()),
+                        Toast.LENGTH_LONG).show();
+            });
+        }
+
+        private void activateInstance(Activity activity, String instanceId) {
+            Context app = activity.getApplicationContext();
+            UIHelper.defer().when(() -> {
+                java.nio.file.Path dataDir = app.getDataDir().toPath();
+                GuestInstanceRegistry registry = GuestInstanceRegistry.load(
+                        GuestInstanceRegistry.defaultPath(dataDir));
+                // Only an instance whose slot really holds a ROM may become active.
+                GuestInstanceGate.requireStartable(dataDir.toFile(), registry, instanceId);
+                registry.activate(instanceId);
+                registry.save();
+                return registry.slotOf(instanceId);
+            }).done(slot -> {
+                if (getActivity() != activity) return;
+                Toast.makeText(app, app.getString(R.string.guest_instance_activated,
+                        instanceId, String.valueOf(slot)), Toast.LENGTH_LONG).show();
+                refreshInstances();
+                // The guest is a process-wide singleton: only a new process can
+                // bind the newly active slot.
+                new Handler(Looper.getMainLooper()).postDelayed(
+                        () -> android.os.Process.killProcess(android.os.Process.myPid()), 1200);
+            }).fail(failure -> {
+                if (getActivity() != activity) return;
+                Toast.makeText(app, app.getString(R.string.install_failed_reason, failure.getMessage()),
+                        Toast.LENGTH_LONG).show();
+            });
         }
 
         private void chooseInstanceToPrepare() {
@@ -303,6 +356,13 @@ public class SettingsActivity extends AppCompatActivity {
             if (createPreference != null) {
                 createPreference.setOnPreferenceClickListener(preference -> {
                     createInstance();
+                    return true;
+                });
+            }
+            Preference activatePreference = findPreference("guest_instance_activate");
+            if (activatePreference != null) {
+                activatePreference.setOnPreferenceClickListener(preference -> {
+                    chooseInstanceToActivate();
                     return true;
                 });
             }

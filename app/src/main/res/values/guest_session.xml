@@ -33,4 +33,7 @@
     <string name="guest_instance_prepare_summary">Install the bundled ROM into a chosen slot</string>
     <string name="guest_instance_prepare_running">Preparing the system, keep the app open…</string>
     <string name="guest_instance_prepare_done">Instance %1$s: system ready = %2$s</string>
+    <string name="guest_instance_activate">Switch guest instance</string>
+    <string name="guest_instance_activate_summary">Activate an instance; the app restarts on its slot</string>
+    <string name="guest_instance_activated">Activated %1$s on slot %2$d, restarting…</string>
 </resources>
