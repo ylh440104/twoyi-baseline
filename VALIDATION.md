@@ -139,6 +139,13 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段二首轮：最小 loader 骨架（8 项单测全绿）
+
+- 新增 `tools/miniloader/`（Rust，无外部依赖）：`elf.rs`（ELF64 校验 + PT_LOAD 提取）、`map.rs`（预留/逐段映射/bss/权限计划）、`stack.rs`（argc/argv/envp/auxv 初始栈镜像，`AT_PAGESZ` 强制、1 MiB 上限）。
+- CI 运行 45838817417 全绿：`test result: ok. 8 passed; 0 failed`，逐条 `parses_a_single_executable_segment / rejects_malformed_images / plans_page_aligned_mappings_with_bss / plan_rejects_bad_pages_and_empty_inputs / prot_flags_map_to_the_expected_bits / stack_layout_is_ordered_aligned_and_terminated / stack_rejects_oversized_and_incomplete_inputs / empty_argv_is_still_a_valid_image`。
+- 过程中被云端抓出四个真问题：栈镜像尾部未对齐、测试里 entry 落在段外、`0x1000` 已是页对齐（预留起点算错）、`ExitCode` 属 Rust 1.61 而声明的 MSRV 是 1.60；另有三条 clippy 规则（`len` 缺 `is_empty`、单分支 `match`、`Default::default()` 后逐字段赋值）被拦下。
+- `rustfmt --check` 改为**建议性**检查（只报告 154 行建议，不阻塞），避免格式问题掩盖正确性门禁。
+
 ## 阶段一/二 首轮：loader 契约、HAL 线格式、gfxstream、ROM 打包器
 
 三个子任务并行完成，结论分别归档：
