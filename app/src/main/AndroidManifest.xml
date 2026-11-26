@@ -29,47 +29,30 @@
         <service android:name=".GuestSessionService" android:exported="false" />
 
         <!-- Per-slot guest processes, declared but disabled until the launch path
-             is slot-aware. Mirrors the newest build's :guest0..:guest3 services. -->
+             is slot-aware. Mirrors the newest build's :guest0..:guest3 processes.
+             The newest build also declares foregroundServiceType="specialUse" and
+             a PROPERTY_SPECIAL_USE_FGS_SUBTYPE; both need compileSdk 34 while this
+             tree compiles against 31, so they are added when the SDK moves up. -->
         <service
             android:name=".GuestInstanceService$Slot0"
             android:process=":guest0"
             android:exported="false"
-            android:enabled="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Keeps one embedded guest session alive while it runs" />
-        </service>
+            android:enabled="false" />
         <service
             android:name=".GuestInstanceService$Slot1"
             android:process=":guest1"
             android:exported="false"
-            android:enabled="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Keeps one embedded guest session alive while it runs" />
-        </service>
+            android:enabled="false" />
         <service
             android:name=".GuestInstanceService$Slot2"
             android:process=":guest2"
             android:exported="false"
-            android:enabled="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Keeps one embedded guest session alive while it runs" />
-        </service>
+            android:enabled="false" />
         <service
             android:name=".GuestInstanceService$Slot3"
             android:process=":guest3"
             android:exported="false"
-            android:enabled="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Keeps one embedded guest session alive while it runs" />
-        </service>
+            android:enabled="false" />
 
         <activity android:name=".Render2Activity"
             android:theme="@style/Theme.Twoyi.FullScreen"

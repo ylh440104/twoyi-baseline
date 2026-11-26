@@ -73,6 +73,15 @@ jobs:
   boot-state:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      # Every slot-dependent regression compiles this same set, so a new
+      # dependency shows up once instead of per step.
+      SLOT_SOURCES: >-
+        app/src/main/java/io/twoyi/GuestEndpoints.java
+        app/src/main/java/io/twoyi/GuestSlot.java
+        app/src/main/java/io/twoyi/GuestSlotLayout.java
+        app/src/main/java/io/twoyi/GuestSlotSelection.java
+        app/src/main/java/io/twoyi/GuestInstanceRegistry.java
     steps:
       - uses: actions/checkout@v4
         with:
@@ -111,12 +120,12 @@ jobs:
       - name: Verify legacy input paths and descriptor limits
         run: |
           mkdir -p "$RUNNER_TEMP/endpoint-tests"
-          javac -d "$RUNNER_TEMP/endpoint-tests" app/src/main/java/io/twoyi/GuestEndpoints.java app/src/main/java/io/twoyi/GuestSlot.java app/src/main/java/io/twoyi/GuestSlotLayout.java app/src/main/java/io/twoyi/GuestSlotSelection.java tools/GuestEndpointsTest.java
+          javac -d "$RUNNER_TEMP/endpoint-tests" $SLOT_SOURCES tools/GuestEndpointsTest.java
           java -cp "$RUNNER_TEMP/endpoint-tests" io.twoyi.GuestEndpointsTest
       - name: Verify guest slot isolation
         run: |
           mkdir -p "$RUNNER_TEMP/slot-tests"
-          javac -d "$RUNNER_TEMP/slot-tests" app/src/main/java/io/twoyi/GuestEndpoints.java app/src/main/java/io/twoyi/GuestSlot.java app/src/main/java/io/twoyi/GuestSlotLayout.java app/src/main/java/io/twoyi/GuestSlotSelection.java tools/GuestSlotTest.java
+          javac -d "$RUNNER_TEMP/slot-tests" $SLOT_SOURCES tools/GuestSlotTest.java
           java -cp "$RUNNER_TEMP/slot-tests" io.twoyi.GuestSlotTest
       - name: Verify HAL connection tracking
         run: |
@@ -126,22 +135,22 @@ jobs:
       - name: Verify per-slot service class mapping
         run: |
           mkdir -p "$RUNNER_TEMP/service-slot-tests"
-          javac -d "$RUNNER_TEMP/service-slot-tests" app/src/main/java/io/twoyi/GuestSlot.java app/src/main/java/io/twoyi/GuestSlotSelection.java tools/GuestServiceSlotTest.java
+          javac -d "$RUNNER_TEMP/service-slot-tests" $SLOT_SOURCES tools/GuestServiceSlotTest.java
           java -cp "$RUNNER_TEMP/service-slot-tests" io.twoyi.GuestServiceSlotTest
       - name: Verify guest instance registry
         run: |
           mkdir -p "$RUNNER_TEMP/instance-registry-tests"
-          javac -d "$RUNNER_TEMP/instance-registry-tests" app/src/main/java/io/twoyi/GuestEndpoints.java app/src/main/java/io/twoyi/GuestSlotSelection.java app/src/main/java/io/twoyi/GuestSlotLayout.java app/src/main/java/io/twoyi/GuestSlot.java app/src/main/java/io/twoyi/GuestInstanceRegistry.java tools/GuestInstanceRegistryTest.java
+          javac -d "$RUNNER_TEMP/instance-registry-tests" $SLOT_SOURCES tools/GuestInstanceRegistryTest.java
           java -cp "$RUNNER_TEMP/instance-registry-tests" io.twoyi.GuestInstanceRegistryTest
       - name: Verify per-slot guest directory layout
         run: |
           mkdir -p "$RUNNER_TEMP/slot-layout-tests"
-          javac -d "$RUNNER_TEMP/slot-layout-tests" app/src/main/java/io/twoyi/GuestSlot.java app/src/main/java/io/twoyi/GuestEndpoints.java app/src/main/java/io/twoyi/GuestSlotSelection.java app/src/main/java/io/twoyi/GuestSlotLayout.java tools/GuestSlotLayoutTest.java
+          javac -d "$RUNNER_TEMP/slot-layout-tests" $SLOT_SOURCES tools/GuestSlotLayoutTest.java
           java -cp "$RUNNER_TEMP/slot-layout-tests" io.twoyi.GuestSlotLayoutTest
       - name: Verify guest slot selection parsing
         run: |
           mkdir -p "$RUNNER_TEMP/slot-select-tests"
-          javac -d "$RUNNER_TEMP/slot-select-tests" app/src/main/java/io/twoyi/GuestSlotSelection.java app/src/main/java/io/twoyi/GuestSlot.java app/src/main/java/io/twoyi/GuestSlotLayout.java app/src/main/java/io/twoyi/GuestEndpoints.java tools/GuestSlotSelectionTest.java
+          javac -d "$RUNNER_TEMP/slot-select-tests" $SLOT_SOURCES tools/GuestSlotSelectionTest.java
           java -cp "$RUNNER_TEMP/slot-select-tests" io.twoyi.GuestSlotSelectionTest
       - name: Verify wipe-all-data stays inside the guest data directory
         run: |
