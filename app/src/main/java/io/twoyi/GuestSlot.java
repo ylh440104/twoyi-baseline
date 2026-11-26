@@ -28,6 +28,16 @@ public final class GuestSlot {
         this.endpoints = endpoints;
     }
 
+    /** Resolve the slot directory from the app data dir, following the slot layout. */
+    public static GuestSlot forDataDir(int index, String instanceId, File dataDir) {
+        return of(index, instanceId, GuestSlotLayout.baseDirectory(dataDir, index));
+    }
+
+    /** The newest implementation keeps slot 0 on the legacy data dir. */
+    public static GuestSlot legacy(File dataDir) {
+        return forDataDir(0, "twin", dataDir);
+    }
+
     public static GuestSlot of(int index, String instanceId, File slotDataDir) {
         if (index < 0 || index >= SLOT_COUNT) {
             throw new IllegalArgumentException("Guest slot index must be between 0 and " + (SLOT_COUNT - 1));
