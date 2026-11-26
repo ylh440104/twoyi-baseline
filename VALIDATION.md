@@ -9,6 +9,16 @@
 - input-stream: success。直接编译生产代码使用的 event_stream.rs，验证发送端关闭后排空退出，以及写错误时不等待发送端关闭而立即退出。
 - 本机未运行 javac、rustc、Android 构建或反编译。
 
+## 新仓库首次成功构建
+
+- 新仓库：https://github.com/ylh440104/twoyi-baseline（公开，独立于分析仓库 twoyi-apk-reverse），分支 main。
+- 构建运行：https://github.com/ylh440104/twoyi-baseline/actions/runs/45735948256 ，普通 GitHub 托管 runner，assemble 成功，未在任何本机执行编译。
+- 固定上游提交 dd052a07a812e742ec7583da393466ccc066a8b1；打包报告记录 development_sha=29e1ddfa367d2f4b3a9d3ecab62a3fb535dda186、run_id=45735948256。
+- 应用 APK 211553105 字节，SHA-256 7bcc631c5700ed8264dc768efe5ad376d0455012bc317f55e975c91aac6cfea7；测试 APK SHA-256 ec9e0ef2202e6798591e6b13859a3bba5d2968c85d173dc76fc3c509497265e6。下载后本地 sha256sum 与报告一致。
+- 归档预检输出 Bundled ROM passed the installer's archive preflight，随包 rootfs.7z 与 rom.ini 通过打包哈希校验。
+- 预发布下载：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260131 。这是 debug 构建，未经真机验收，非发布质量产物。
+- 该进程中发现并修复三个仅靠云端编译才能暴露的问题：commons-compress 1.20 需要 xz 1.8 的 LZMA 流类、GuestSessionService 重复字段、UIHelper 缺少 Set 导入与 Glide 生成 API 依赖注解处理。
+- 托管 x86 模拟器任务已移除：宿主 APK 仅含 arm64-v8a 且来宾为 ARM 镜像，x86 模拟器无法承载；设备级验收改由专用 ARM64 runner 执行，目前 skipped（需要 workflow_dispatch 且 device_smoke=true）。
 ## 完整云端构建进度
 
 - 开发验证仓库：ylh440104/twoyi-baseline（公开），分支 main；通过轻量文本 overlay 叠加固定上游提交，runner 仅浅拉取上游。
