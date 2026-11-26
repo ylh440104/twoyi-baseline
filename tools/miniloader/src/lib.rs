@@ -8,8 +8,10 @@
 
 pub mod elf;
 pub mod map;
+pub mod proto;
 pub mod stack;
 
 pub use elf::{Elf, ElfError, Segment};
 pub use map::{plan, MapError, MappingPlan};
+pub use proto::{ProtoError, Tbd1, B1F2};
 pub use stack::{build as build_stack, Auxv, StackError, StackImage};
