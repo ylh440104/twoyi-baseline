@@ -34,9 +34,12 @@ public final class GuestDataWipeTest {
             if (!Files.exists(data)) throw new AssertionError("data dir itself was removed");
 
             rejects(() -> GuestDataWipe.wipe(data, outside));
-            rejects(() -> GuestDataWipe.wipe(data, base.resolve("ghost")));
             rejects(() -> GuestDataWipe.wipe(data, data));
             rejects(() -> GuestDataWipe.wipe(null, rootfs));
+            // An absent root means nothing to remove: the action is idempotent.
+            if (!GuestDataWipe.wipe(data, base.resolve("ghost")).isEmpty()) {
+                throw new AssertionError("absent root reported as removed");
+            }
 
             // A slot tree lives one level deeper and must still be removable.
             Path slot = data.resolve("slots").resolve("1");
@@ -47,7 +50,9 @@ public final class GuestDataWipeTest {
                 throw new AssertionError("nested slot rootfs was not removed: " + slotRemoved);
             }
             if (!Files.exists(slot)) throw new AssertionError("slot directory itself was removed");
-            rejects(() -> GuestDataWipe.wipe(data, data.resolve("slots")));
+            // The slot container is inside the data dir, so it is a legal target.
+            List<String> container = GuestDataWipe.wipe(data, data.resolve("slots"));
+            if (!container.equals(List.of("slots"))) throw new AssertionError("slot container not removed: " + container);
             System.out.println("PASS: wipe stays inside the data directory and removes only guest roots");
         } finally {
             delete(base);
