@@ -27,11 +27,27 @@ public final class GuestProcessProfile {
         if (endpoints != null) return;
         File dataDir = context.getApplicationContext().getDataDir();
         String argument = readSlotArgument(context);
-        int resolved = GuestSlotSelection.resolve(argument);
-        GuestEndpoints derived = GuestSlotLayout.endpoints(argument, dataDir);
-        slotArgument = argument;
+        int resolved = resolveSlot(argument, dataDir);
+        GuestEndpoints derived = GuestSlotLayout.endpoints(Integer.toString(resolved), dataDir);
+        slotArgument = Integer.toString(resolved);
         slot = resolved;
         endpoints = derived;
+    }
+
+    /**
+     * An explicit payload wins; otherwise the registry's active instance picks
+     * the slot, which is how switching instances works for a process-wide guest.
+     */
+    private static int resolveSlot(String argument, File dataDir) {
+        GuestInstanceRegistry registry = null;
+        try {
+            registry = GuestInstanceRegistry.load(
+                    GuestInstanceRegistry.defaultPath(dataDir.toPath()));
+        } catch (java.io.IOException unreadable) {
+            // A damaged registry must not keep the app from starting slot 0.
+            android.util.Log.w("GuestProcessProfile", "guest instance registry unreadable", unreadable);
+        }
+        return GuestStartupSlot.resolve(argument, registry);
     }
 
     /**
@@ -69,6 +85,14 @@ public final class GuestProcessProfile {
         return GuestSlotLayout.baseDirectory(context.getApplicationContext().getDataDir(), slot());
     }
 
+    /**
+     * Explicit slot payload, or null when the manifest only declares the default.
+     *
+     * The manifest ships {@code GUEST_SLOT=0}. Treating that "0" as an explicit
+     * payload would pin every process to slot 0 and make the active instance
+     * unreachable, so the default value is reported as "no payload" and the
+     * registry decides. Per-slot services do not use this path at all.
+     */
     private static String readSlotArgument(Context context) {
         try {
             PackageManager packages = context.getPackageManager();
@@ -77,7 +101,9 @@ public final class GuestProcessProfile {
                     context.getPackageName(), PackageManager.GET_META_DATA);
             Bundle metaData = info == null ? null : info.metaData;
             Object value = metaData == null ? null : metaData.get(META_DATA_SLOT);
-            return value == null ? null : value.toString();
+            if (value == null) return null;
+            String text = value.toString().trim();
+            return text.isEmpty() || text.equals("0") ? null : text;
         } catch (PackageManager.NameNotFoundException e) {
             return null;
         }

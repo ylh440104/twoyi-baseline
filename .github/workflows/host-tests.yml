@@ -36,6 +36,7 @@ jobs:
             app/src/main/java/io/twoyi/GuestInstanceRegistry.java \
             app/src/main/java/io/twoyi/GuestInstanceGate.java \
             app/src/main/java/io/twoyi/GuestInstanceManager.java \
+            app/src/main/java/io/twoyi/GuestStartupSlot.java \
             app/src/main/java/io/twoyi/HalConnectionRegistry.java \
             app/src/main/java/io/twoyi/WindowOwner.java \
             app/src/main/java/io/twoyi/utils/RomInstallTransaction.java \
@@ -86,6 +87,7 @@ jobs:
         app/src/main/java/io/twoyi/GuestInstanceRegistry.java
         app/src/main/java/io/twoyi/GuestInstanceGate.java
         app/src/main/java/io/twoyi/GuestInstanceManager.java
+        app/src/main/java/io/twoyi/GuestStartupSlot.java
         app/src/main/java/io/twoyi/utils/GuestDataWipe.java
     steps:
       - uses: actions/checkout@v4
@@ -144,6 +146,11 @@ jobs:
           java -cp "$RUNNER_TEMP/service-slot-tests" io.twoyi.GuestServiceSlotTest
       - name: Guard guest paths against data-directory derivation
         run: python3 tools/check_slot_paths.py
+      - name: Verify startup slot resolution
+        run: |
+          mkdir -p "$RUNNER_TEMP/startup-slot-tests"
+          javac -d "$RUNNER_TEMP/startup-slot-tests" $SLOT_SOURCES tools/GuestStartupSlotTest.java
+          java -cp "$RUNNER_TEMP/startup-slot-tests" io.twoyi.GuestStartupSlotTest
       - name: Verify instance create and release
         run: |
           mkdir -p "$RUNNER_TEMP/instance-manager-tests"
