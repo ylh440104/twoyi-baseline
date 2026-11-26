@@ -116,6 +116,14 @@
 
 - ARM64 生命周期用例现通过正式安装器依次导入单 APK、同签名的 base 与 feature 分包组合，并检查损坏 APK 的失败清理。Actions 生成两份 API 27 测试 APK 并核对签名和打包后的哈希。实际分包安装待 ARM64 设备执行。
 
+## 控制 socket 重试上限与破坏性操作前置条件
+
+- 上一轮确认 socket 名必须在所有槽之间共用，于是出现新风险：另一个来宾进程若已占用该名字，本进程 `bind` 会失败，而原实现每 1 秒无限重试，既耗电又刷日志，来宾永远连不上。
+- 新增 `ControlSocketRetry`：最多 3 次、指数退避（250/500/1000 ms），用尽后记录“另一个来宾可能占用了该名称”并停止重试；`EADDRINUSE` 与非抢占错误分开记录，便于排查。
+- 同时把“装系统 / 清数据”这两个破坏性操作的前置条件从 `isStarted()` 收紧为 `phase() == STOPPED`：之前只挡“已经在跑”，挡不住“正在启动”，仍可能和启动过程抢同一个槽。
+- Actions 全部通过（十四项 PASS），含 `PASS: control socket retries are bounded and collisions recognised`，运行 https://github.com/ylh440104/twoyi-baseline/actions/runs/45780543842 ，同批 APK 构建成功。
+- 未验收：真实多进程场景下的 socket 占用提示、退避在实际设备上的表现。
+
 ## Socket 名不可按槽改名（自我纠正）
 
 - 前几轮我把控制 socket 改成 `TWOYI_SOCK1..3` 以避免抽象名冲突。这是个设计错误：该名字编译在随包 ROM 的 loader 里，改名后来宾会连到不存在的监听，启动永远收不到完成通知，表现为启动超时。
