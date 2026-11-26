@@ -81,7 +81,7 @@ jobs:
       - name: Verify legacy input paths and descriptor limits
         run: |
           mkdir -p "$RUNNER_TEMP/endpoint-tests"
-          javac -d "$RUNNER_TEMP/endpoint-tests" app/src/main/java/io/twoyi/GuestEndpoints.java tools/GuestEndpointsTest.java
+          javac -d "$RUNNER_TEMP/endpoint-tests" app/src/main/java/io/twoyi/GuestEndpoints.java app/src/main/java/io/twoyi/GuestSlot.java tools/GuestEndpointsTest.java
           java -cp "$RUNNER_TEMP/endpoint-tests" io.twoyi.GuestEndpointsTest
       - name: Verify guest slot isolation
         run: |
@@ -93,6 +93,11 @@ jobs:
           mkdir -p "$RUNNER_TEMP/hal-conn-tests"
           javac -d "$RUNNER_TEMP/hal-conn-tests" app/src/main/java/io/twoyi/HalConnectionRegistry.java tools/HalConnectionRegistryTest.java
           java -cp "$RUNNER_TEMP/hal-conn-tests" io.twoyi.HalConnectionRegistryTest
+      - name: Verify guest slot selection parsing
+        run: |
+          mkdir -p "$RUNNER_TEMP/slot-select-tests"
+          javac -d "$RUNNER_TEMP/slot-select-tests" app/src/main/java/io/twoyi/GuestSlotSelection.java app/src/main/java/io/twoyi/GuestSlot.java app/src/main/java/io/twoyi/GuestEndpoints.java tools/GuestSlotSelectionTest.java
+          java -cp "$RUNNER_TEMP/slot-select-tests" io.twoyi.GuestSlotSelectionTest
       - name: Verify wipe-all-data stays inside the guest data directory
         run: |
           mkdir -p "$RUNNER_TEMP/wipe-tests"

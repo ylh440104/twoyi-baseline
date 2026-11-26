@@ -48,16 +48,31 @@ public final class GuestEndpoints {
     }
 
     public static GuestEndpoints forDataDir(File dataDir) {
+        return forSlot(0, dataDir);
+    }
+
+    /**
+     * Slot 0 keeps the exact legacy abstract socket names so the shipped ROM
+     * still finds the control and HAL endpoints. Additional slots get names
+     * suffixed with their index, because two abstract listeners with the same
+     * name cannot coexist in one device.
+     */
+    public static GuestEndpoints forSlot(int slot, File dataDir) {
         Objects.requireNonNull(dataDir, "dataDir");
+        if (slot < 0 || slot >= io.twoyi.GuestSlot.SLOT_COUNT) {
+            throw new IllegalArgumentException("Guest slot must be between 0 and "
+                    + (io.twoyi.GuestSlot.SLOT_COUNT - 1));
+        }
         File rootfs = new File(dataDir, "rootfs");
         File inputDir = new File(new File(rootfs, "dev"), "input");
+        String suffix = slot == 0 ? "" : Integer.toString(slot);
         return new GuestEndpoints(
                 rootfs.getAbsolutePath(),
                 new File(dataDir, "log.txt").getAbsolutePath(),
                 new File(inputDir, "touch").getAbsolutePath(),
                 new File(inputDir, "key0").getAbsolutePath(),
-                DEFAULT_CONTROL_SOCKET,
-                DEFAULT_HAL_SOCKET
+                DEFAULT_CONTROL_SOCKET + suffix,
+                DEFAULT_HAL_SOCKET + suffix
         );
     }
 

@@ -22,14 +22,29 @@ public class TwoyiMessenger {
     public static final String TAG = "TwoyiMessenger";
     public static final String SWITCH_HOST = "SWITCH_HOST";
     public static final String PING = "PING";
-    private static final String SOCK_NAME = GuestEndpoints.DEFAULT_CONTROL_SOCKET;
     private static final Executor EXECUTOR = Executors.newSingleThreadExecutor();
     private static TwoyiMessenger INSTANCE;
 
     private LocalSocket socket;
     private OutputStream output;
+    private volatile String controlSocketName = GuestEndpoints.DEFAULT_CONTROL_SOCKET;
 
     private TwoyiMessenger() {
+    }
+
+    /** The probe and outbound switch requests must address the slot's own listener. */
+    synchronized void configureControlSocketName(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            throw new IllegalArgumentException("Control socket name is required");
+        }
+        if (socket != null) {
+            throw new IllegalStateException("Control socket is already connected");
+        }
+        controlSocketName = name;
+    }
+
+    synchronized String getControlSocketName() {
+        return controlSocketName;
     }
 
     public synchronized TwoyiMessenger connect() {
@@ -38,7 +53,7 @@ public class TwoyiMessenger {
         }
         LocalSocket candidate = new LocalSocket(LocalSocket.SOCKET_SEQPACKET);
         try {
-            candidate.connect(new LocalSocketAddress(SOCK_NAME));
+            candidate.connect(new LocalSocketAddress(controlSocketName));
             if (candidate.getPeerCredentials().getUid() != Process.myUid()) {
                 throw new IOException("Unexpected guest control socket owner");
             }

@@ -39,7 +39,7 @@ public final class GuestSlot {
         if (!slotDataDir.isAbsolute()) {
             throw new IllegalArgumentException("Guest slot directory requires an absolute path");
         }
-        return new GuestSlot(index, instanceId, GuestEndpoints.forDataDir(slotDataDir));
+        return new GuestSlot(index, instanceId, GuestEndpoints.forSlot(index, slotDataDir));
     }
 
     public int getIndex() { return index; }

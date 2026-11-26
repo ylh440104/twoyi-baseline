@@ -52,8 +52,6 @@ public class TwoyiSocketServer {
 
     private static TwoyiSocketServer INSTANCE;
 
-    private static final String SOCK_NAME = GuestEndpoints.DEFAULT_CONTROL_SOCKET;
-
     private static final String SWITCH_HOST = "SWITCH_HOST";
     private static final String BOOT_COMPLETED = "BOOT_COMPLETED";
 
@@ -68,9 +66,36 @@ public class TwoyiSocketServer {
     private final Context mContext;
     private final Object readiness = new Object();
     private boolean listening;
+    private volatile String controlSocketName = GuestEndpoints.DEFAULT_CONTROL_SOCKET;
+    private boolean configured;
 
     private TwoyiSocketServer(Context context) {
         mContext = context;
+    }
+
+    /**
+     * A guest process serves exactly one slot, so the listener name is fixed for
+     * the process lifetime. Changing it after the bind starts would leave the
+     * guest talking to a name nobody listens on.
+     */
+    void configureControlSocketName(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            throw new IllegalArgumentException("Control socket name is required");
+        }
+        synchronized (readiness) {
+            if (mStarted.get() || listening) {
+                throw new IllegalStateException("Control listener already started");
+            }
+            if (configured && !name.equals(controlSocketName)) {
+                throw new IllegalStateException("Control socket name already configured");
+            }
+            controlSocketName = name;
+            configured = true;
+        }
+    }
+
+    String getControlSocketName() {
+        return controlSocketName;
     }
 
     public static synchronized TwoyiSocketServer getInstance(Context context) {
@@ -114,7 +139,7 @@ public class TwoyiSocketServer {
         LocalSocket socket = null;
         try {
             socket = new LocalSocket(LocalSocket.SOCKET_SEQPACKET);
-            socket.bind(new LocalSocketAddress(SOCK_NAME, LocalSocketAddress.Namespace.ABSTRACT));
+            socket.bind(new LocalSocketAddress(controlSocketName, LocalSocketAddress.Namespace.ABSTRACT));
             // The LocalSocket owns this descriptor. Close it once in the outer finally.
             LocalServerSocket server = new LocalServerSocket(socket.getFileDescriptor());
             synchronized (readiness) {

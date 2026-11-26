@@ -43,7 +43,12 @@ public class TwoyiApplication extends Application {
 
         RomManager.ensureBootFiles(base);
 
-        TwoyiSocketServer.getInstance(base).start();
+        // Bind the control listener under the slot's own abstract name before
+        // anything can start the guest. Slot 0 keeps the legacy name.
+        TwoyiSocketServer server = TwoyiSocketServer.getInstance(base);
+        server.configureControlSocketName(GuestEndpoints.forDataDir(base.getDataDir()).getControlSocketName());
+        TwoyiMessenger.getInstance().configureControlSocketName(server.getControlSocketName());
+        server.start();
     }
 
     @Override
