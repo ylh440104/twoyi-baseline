@@ -29,7 +29,7 @@ jobs:
             https://dl.twoyi.ai/twoyi_0.7.5-11131322.apk
           echo "86ed3afaa447104f131d906c42ed8a07e207959c7869fda54bd245f62db14f4e  $RUNNER_TEMP/twoyi-0.7.5.apk" \
             | sha256sum --check
-          unzip -l "$RUNNER_TEMP/twoyi-0.7.5.apk" | grep -E 'assets/' | head -40
+          unzip -l "$RUNNER_TEMP/twoyi-0.7.5.apk" | grep -E 'assets/' | head -40 || true
           unzip -p "$RUNNER_TEMP/twoyi-0.7.5.apk" assets/rootfs.tar.zst > "$RUNNER_TEMP/rootfs.tar.zst"
           ls -l "$RUNNER_TEMP/rootfs.tar.zst"
       - name: Install zstd
@@ -57,17 +57,17 @@ jobs:
           report="$RUNNER_TEMP/rom-tree.txt"
           {
             echo '# top-level entries'
-            ls -la "$work" | head -40
+            ls -la "$work" | head -40 || true
             echo
             echo '# entry count and bytes'
             find "$work" -mindepth 1 | wc -l
             du -sb "$work"
             echo
             echo '# largest directories'
-            du -sb "$work"/* 2>/dev/null | sort -rn | head -20
+            du -sb "$work"/* 2>/dev/null | sort -rn | head -20 || true
             echo
             echo '# layout of the single top-level directory'
-            ls -la "$work/rootfs" | head -40
+            ls -la "$work/rootfs" | head -40 || true
             echo
             echo '# entry types'
             echo "regular $(find "$work" -type f | wc -l)"
@@ -84,7 +84,7 @@ jobs:
             ls -ld "$work/rootfs/system/vendor" 2>/dev/null || true
             echo
             echo '# ownership sample (tar metadata)'
-            tar --use-compress-program=unzstd -tvf "$RUNNER_TEMP/rootfs.tar.zst" | head -8
+            tar --use-compress-program=unzstd -tvf "$RUNNER_TEMP/rootfs.tar.zst" | head -8 || true
             echo
             echo '# build identity'
             for prop in ro.build.fingerprint ro.build.id ro.build.version.release ro.product.device ro.build.type ro.product.manufacturer ro.build.version.sdk; do
@@ -96,7 +96,7 @@ jobs:
             head -12 "$work/rootfs/init.goldfish.rc" 2>/dev/null || true
             echo
             echo '# HAL modules'
-            find "$work" -path '*/hw/*.so' 2>/dev/null | sed "s|$work/||" | sort | head -40
+            find "$work" -path '*/hw/*.so' 2>/dev/null | sed "s|$work/||" | sort | head -40 || true
             echo
             echo '# HAL module count'
             find "$work" -path '*/hw/*.so' 2>/dev/null | wc -l
@@ -123,10 +123,10 @@ jobs:
             wc -l "$new_list" "$old_list"
             echo
             echo '# only in the newest ROM (first 80)'
-            comm -23 "$new_list" "$old_list" | head -80
+            comm -23 "$new_list" "$old_list" | head -80 || true
             echo
             echo '# only in the legacy ROM (first 40)'
-            comm -13 "$new_list" "$old_list" | head -40
+            comm -13 "$new_list" "$old_list" | head -40 || true
           } > "$RUNNER_TEMP/rom-diff.txt"
           cat "$RUNNER_TEMP/rom-diff.txt"
       - uses: actions/upload-artifact@v4
