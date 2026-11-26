@@ -57,7 +57,7 @@ jobs:
           preflight_dir=$(mktemp -d "$RUNNER_TEMP/rom-preflight.XXXXXX")
           maven=https://repo.maven.apache.org/maven2
           compress=org/apache/commons/commons-compress/1.20/commons-compress-1.20.jar
-          xz=org/tukaani/xz/1.5/xz-1.5.jar
+          xz=org/tukaani/xz/1.8/xz-1.8.jar
           for dependency in "$compress" "$xz"; do
             curl --fail --silent --show-error --retry 3 "$maven/$dependency" \
               --output "$preflight_dir/${dependency##*/}"
