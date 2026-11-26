@@ -139,6 +139,15 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段二第二轮：握手协议编码（6 项新单测全绿）
+
+- 新增 `tools/miniloader/src/proto.rs`：把 `docs/LOADER_PROTOCOL.md` 的字段表落成可执行契约。
+  - `B1F2`：32 字节，魔数 `0x32463142`、版本 `2`、kind `1`、status `3`、两个回显字、两个句柄字；`handles_present()` 对应 loader「两个句柄必须非 0」的校验。
+  - `TBD1`：32 字节头（魔数 `0x31444254`、版本 `1`、序号 u16、role u32、负载长度 u32、flags 必须 `1`、三个保留字必须 0）+ 负载 ≤ `0xC00`，总长 `< 0x1000` 与 loader 的边界一致。
+  - 解码逐项校验：魔数/版本/kind/status/flags/保留字/长度，长度声明与实际不符双向报错。
+- CI 运行 45839431324 全绿：`test result: ok. 8 passed`（既有）+ `test result: ok. 6 passed`（新增 `b1f2_request_has_the_documented_layout`、`b1f2_round_trips_and_requires_both_handles`、`b1f2_rejects_wrong_magic_version_kind_status_and_size`、`tbd1_encodes_header_and_payload`、`tbd1_rejects_bad_inputs`、`tbd1_limits_match_the_documented_bounds`）。
+- 未验证：真实 socket 上的收发（需要设备与宿主端实现）。
+
 ## 阶段二首轮：最小 loader 骨架（8 项单测全绿）
 
 - 新增 `tools/miniloader/`（Rust，无外部依赖）：`elf.rs`（ELF64 校验 + PT_LOAD 提取）、`map.rs`（预留/逐段映射/bss/权限计划）、`stack.rs`（argc/argv/envp/auxv 初始栈镜像，`AT_PAGESZ` 强制、1 MiB 上限）。
