@@ -139,6 +139,15 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段二第三轮：通道两端跑通（19 项单测全绿）
+
+- 新增 `tools/miniloader/src/broker.rs`：`HandshakeClient`（attach → exec）与 `Broker`（应答握手、校验并回执 `TBD1`）两端，传输泛型 `Read+Write`，将来换成官方 `socketpair`+`SCM_RIGHTS` 无需改协议层。
+- 新增 `tests/handshake.rs`：用 `UnixStream::pair()` 起两个线程，真实收发字节。
+- CI 运行 45840005667 全绿，三组用例合计 **19 项**：
+  - `handshake` 5 项：`handshake_then_exec_succeeds`、`exec_before_attach_is_refused_locally`、`attach_version_mismatch_is_detected`、`zero_handle_reply_is_rejected`、`oversized_declared_payload_is_refused_by_the_broker`
+  - `plan` 8 项、`proto` 6 项（前两轮既有）
+- 未验证：真机上的 `socketpair` + fd 传递；`TBD1` 负载里 3160 字节的具体切分仍未知。
+
 ## 阶段二第二轮：握手协议编码（6 项新单测全绿）
 
 - 新增 `tools/miniloader/src/proto.rs`：把 `docs/LOADER_PROTOCOL.md` 的字段表落成可执行契约。
