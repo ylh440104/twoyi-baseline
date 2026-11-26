@@ -139,6 +139,20 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段二第六轮：`TBD1` 布局反汇编定案（19 项单测全绿）
+
+- 伪 C 的栈槽类型矛盾无法闭环，改为**直接读指令流**：新增 `.github/workflows/disasm-focus.yml`，
+  用 `aarch64-linux-gnu-objdump` 反汇编 `FUN_00116df4`。
+- 首跑失败：宿主 `objdump` 不认识 AArch64（`can't disassemble for architecture UNKNOWN`），
+  换 `binutils-aarch64-linux-gnu` 后通过（run 45842864007）。
+- **定案结果**（推翻前两版推断）：
+  - `strh w8, [x24, #6]`，`w8 = 0x28` → 偏移 6 是**恒定 tag**，不是"头长 40"；
+  - `mov x0, x24 + 0x78` 与 `str w26, [x24, #68]` → **路径长度在偏移 68，路径字节在偏移 120**；
+  - `mov w9, #0xc78` → 请求 **3192** 字节；`add x9, x8, #0x878` → 应答 **2168** 字节（此前误读为 0x888=2184）；
+  - 失败 `errno = 0x47` = 71 = `EPROTO`。
+- 代码随之重写：`proto.rs` 的 `Tbd1`/`Tbd1Reply` 按上表；`broker.rs` 改读定长帧并回显 tag+序号。
+- CI 运行 45843980364 全绿：handshake 5 + plan 8 + proto 7 = **19 项**。
+
 ## 阶段二第五轮：`TBD1` 请求负载的硬证据（22 项单测全绿）
 
 回到 `FUN_00116df4` 开头逐行读，拿到六条硬证据（伪 C 行 4890-4940）：
