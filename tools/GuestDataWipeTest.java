@@ -34,8 +34,8 @@ public final class GuestDataWipeTest {
             if (!Files.exists(data)) throw new AssertionError("data dir itself was removed");
 
             rejects(() -> GuestDataWipe.wipe(data, outside));
-            rejects(() -> GuestDataWipe.wipe(data, data.resolve("rootfs")));
-            rejects(() -> GuestDataWipe.wipe(data, base.resolve("data")));
+            rejects(() -> GuestDataWipe.wipe(data, base.resolve("ghost")));
+            rejects(() -> GuestDataWipe.wipe(data, data));
             rejects(() -> GuestDataWipe.wipe(null, rootfs));
             System.out.println("PASS: wipe stays inside the data directory and removes only guest roots");
         } finally {

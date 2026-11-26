@@ -15,8 +15,9 @@ import java.util.List;
 
 /**
  * Removes guest-owned state for "wipe all data". Deletion never follows links,
- * refuses to touch anything outside the supplied roots, and reports exactly
- * which roots it removed so the caller can decide whether a reboot is needed.
+ * refuses any root that is not a direct child of the guest data directory, and
+ * reports which roots it removed so the caller can decide whether a reboot is
+ * needed. A root that is already absent is skipped, so the action is idempotent.
  */
 public final class GuestDataWipe {
     private GuestDataWipe() {}
