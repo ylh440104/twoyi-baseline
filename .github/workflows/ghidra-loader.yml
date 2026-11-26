@@ -49,7 +49,7 @@ jobs:
       - name: Run headless analysis
         run: |
           set -euo pipefail
-          headless=$(find "$RUNNER_TEMP/ghidra" -maxdepth 2 -name analyzeHeadless | head -1)
+          headless=$(find "$RUNNER_TEMP/ghidra" -maxdepth 4 -type f -name analyzeHeadless | head -1)
           test -n "$headless"
           export DECOMP_OUT="$RUNNER_TEMP/loader-decompiled.txt"
           project="$RUNNER_TEMP/ghidra-project"
