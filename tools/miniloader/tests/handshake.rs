@@ -38,8 +38,8 @@ fn handshake_then_exec_succeeds() {
 
     let payload = b"/system/bin/init --attach".to_vec();
     let block = Tbd1::new(1, 0x40, payload.clone()).expect("block");
-    let accepted = client.exec(&block).expect("exec ack");
-    assert_eq!(accepted as usize, payload.len());
+    let size = client.exec(&block).expect("exec ack");
+    assert_eq!(size as usize, payload.len());
 
     let (echo, served) = host.join().expect("host thread");
     assert_eq!(echo, (0xdead, 0xbeef));

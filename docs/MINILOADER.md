@@ -22,6 +22,7 @@
 | 初始栈布局（含 `AT_PAGESZ` 强制、上限） | 已实现 + 单测 |
 | 真正的 `mmap` 与跳转 | 待做（需要设备/特权上下文） |
 | `B1F2` / `TBD1` 编解码与校验 | 已实现 + 单测（未接入真实 socket） |
+| `TBD1` 应答（状态 + fd 大小 + EPROTO） | 已实现 + 单测；真实 fd 传递待做 |
 | 宿主 libc bridge（符号重定向） | 待做，见 `LOADER_PROTOCOL.md` 第 6 节的修正 |
 
 ## 测试清单（`cargo test`）
@@ -34,6 +35,7 @@
 - `stack_layout_is_ordered_aligned_and_terminated`：布局顺序、16 字节对齐、`argc` 值、`apply_base` 后指针能读回字符串、`AT_NULL`
 - `stack_rejects_oversized_and_incomplete_inputs`：超过上限报 `TooLarge`、缺 `AT_PAGESZ` 报 `MissingPageSize`
 - `empty_argv_is_still_a_valid_image`：空 argv 仍是合法镜像
+- `proto` 追加：`tbd1_reply_carries_status_size_and_echoes`（成功/失败包络、`EPROTO=0x47`）、`tbd1_reply_rejects_bad_envelopes`
 - `handshake`（`tests/handshake.rs`，用 `UnixStream::pair()` 起两端线程）：握手→exec 全流程、exec 早于 attach 被本地拒绝、attach 版本不符被发现、句柄为 0 被拒、声明的负载超上限被 broker 拒绝
 - `proto`（`tests/proto.rs`）：`B1F2` 布局与魔数、往返、拒绝错误 magic/version/kind/status/长度；`TBD1` 头字段、往返、保留字必须为 0、负载上限 `0xC00`、声明长度与实际不符被拒
 

@@ -8,7 +8,10 @@
 
 use std::io::{Read, Write};
 
-use crate::proto::{ProtoError, Tbd1, B1F2, B1F2_LEN, TBD1_HEADER_LEN, TBD1_MAX_LEN};
+use crate::proto::{
+    ProtoError, Tbd1, Tbd1Reply, B1F2, B1F2_LEN, TBD1_HEADER_LEN, TBD1_MAX_LEN,
+    TBD1_REPLY_LEN,
+};
 
 #[derive(Debug)]
 pub enum ChannelError {
@@ -105,9 +108,22 @@ impl<S: Read + Write> HandshakeClient<S> {
         let frame = block.encode();
         self.stream.write_all(&frame)?;
         self.stream.flush()?;
-        let mut ack = [0u8; 4];
+        let mut ack = [0u8; TBD1_REPLY_LEN];
         read_exact(&mut self.stream, &mut ack)?;
-        Ok(u32::from_le_bytes([ack[0], ack[1], ack[2], ack[3]]))
+        let reply = Tbd1Reply::decode(&ack)?;
+        if reply.sequence != block.sequence {
+            return Err(ChannelError::Unexpected(format!(
+                "reply sequence {} does not match request {}",
+                reply.sequence, block.sequence
+            )));
+        }
+        if !reply.is_success() {
+            return Err(ChannelError::Unexpected(format!(
+                "broker refused the exec with status {}",
+                reply.status
+            )));
+        }
+        Ok(reply.size as u32)
     }
 }
 
@@ -171,7 +187,8 @@ impl<S: Read + Write> Broker<S> {
         }
         self.next_sequence = block.sequence.wrapping_add(1);
         let accepted = block.payload.len() as u32;
-        self.stream.write_all(&accepted.to_le_bytes())?;
+        let reply = Tbd1Reply::success(block.sequence, block.role, accepted as u64);
+        self.stream.write_all(&reply.encode())?;
         self.stream.flush()?;
         Ok(ServedExec {
             sequence: block.sequence,

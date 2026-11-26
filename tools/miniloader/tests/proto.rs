@@ -172,3 +172,56 @@ fn tbd1_limits_match_the_documented_bounds() {
     assert_eq!(full.encode().len(), TBD1_HEADER_LEN + TBD1_MAX_PAYLOAD);
     assert_eq!(Tbd1::decode(&full.encode()).expect("decode"), full);
 }
+#[test]
+fn tbd1_reply_carries_status_size_and_echoes() {
+    use miniloader::proto::{Tbd1Reply, TBD1_ERRNO_PROTO, TBD1_REPLY_LEN};
+
+    let reply = Tbd1Reply::success(0x1234, 0x40, 0x1_0000);
+    assert!(reply.is_success());
+    let bytes = reply.encode();
+    assert_eq!(bytes.len(), TBD1_REPLY_LEN);
+    assert_eq!(&bytes[0..4], b"TBD1");
+    assert_eq!(u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]), 0);
+    assert_eq!(u32::from_le_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]), 1);
+
+    let decoded = Tbd1Reply::decode(&bytes).expect("decode");
+    assert_eq!(decoded, reply);
+    assert_eq!(decoded.size, 0x1_0000);
+
+    // An error reply keeps the same envelope but a non-zero status.
+    let mut failed = reply.clone();
+    failed.status = TBD1_ERRNO_PROTO;
+    assert!(!failed.is_success());
+    let decoded = Tbd1Reply::decode(&failed.encode()).expect("decode error reply");
+    assert_eq!(decoded.status, TBD1_ERRNO_PROTO);
+    assert_eq!(TBD1_ERRNO_PROTO, 0x47, "the loader uses EPROTO (71) on failure");
+}
+
+#[test]
+fn tbd1_reply_rejects_bad_envelopes() {
+    use miniloader::proto::{Tbd1Reply, TBD1_REPLY_LEN};
+
+    let good = Tbd1Reply::success(1, 2, 3).encode();
+    let mut bad_magic = good.clone();
+    bad_magic[0] = 0;
+    assert!(matches!(Tbd1Reply::decode(&bad_magic), Err(ProtoError::BadMagic(_))));
+
+    let mut bad_version = good.clone();
+    bad_version[4..6].copy_from_slice(&7u16.to_le_bytes());
+    assert!(matches!(Tbd1Reply::decode(&bad_version), Err(ProtoError::BadVersion(7))));
+
+    let mut reserved = good.clone();
+    reserved[20..24].copy_from_slice(&9u32.to_le_bytes());
+    assert!(matches!(
+        Tbd1Reply::decode(&reserved),
+        Err(ProtoError::ReservedNotZero { value: 9, .. })
+    ));
+
+    assert!(matches!(Tbd1Reply::decode(&good[..16]), Err(ProtoError::TooShort { .. })));
+    let mut long = good.clone();
+    long.extend_from_slice(&[0u8; 8]);
+    assert!(matches!(
+        Tbd1Reply::decode(&long),
+        Err(ProtoError::TooLong { max: TBD1_REPLY_LEN, .. })
+    ));
+}

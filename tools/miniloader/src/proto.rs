@@ -221,6 +221,100 @@ impl Tbd1 {
     }
 }
 
+/// `TBD1` reply: the broker answers with a status plus (on success) an fd that
+/// arrives over `SCM_RIGHTS` and its size. Field table: `docs/LOADER_PROTOCOL.md` §5.
+pub const TBD1_REPLY_LEN: usize = 0x888;
+/// `EPROTO` — the errno the loader uses when the reply is inconsistent.
+pub const TBD1_ERRNO_PROTO: u32 = 0x47;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Tbd1Reply {
+    pub sequence: u16,
+    pub role: u32,
+    /// Zero means success and an fd was attached; non-zero is an errno.
+    pub status: u32,
+    pub flags: u32,
+    /// Size of the file behind the attached fd, as reported by the broker.
+    pub size: u64,
+}
+
+impl Tbd1Reply {
+    pub fn success(sequence: u16, role: u32, size: u64) -> Tbd1Reply {
+        Tbd1Reply {
+            sequence,
+            role,
+            status: 0,
+            flags: TBD1_FLAG_ATTACH,
+            size,
+        }
+    }
+
+    pub fn is_success(&self) -> bool {
+        self.status == 0 && self.flags == TBD1_FLAG_ATTACH
+    }
+
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = vec![0u8; TBD1_REPLY_LEN];
+        out[0..4].copy_from_slice(&TBD1_MAGIC.to_le_bytes());
+        out[4..6].copy_from_slice(&TBD1_VERSION.to_le_bytes());
+        out[6..8].copy_from_slice(&self.sequence.to_le_bytes());
+        out[8..12].copy_from_slice(&self.role.to_le_bytes());
+        out[12..16].copy_from_slice(&self.status.to_le_bytes());
+        out[16..20].copy_from_slice(&self.flags.to_le_bytes());
+        out[24..32].copy_from_slice(&self.size.to_le_bytes());
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Tbd1Reply, ProtoError> {
+        if bytes.len() < TBD1_HEADER_LEN {
+            return Err(ProtoError::TooShort {
+                len: bytes.len(),
+                need: TBD1_HEADER_LEN,
+            });
+        }
+        if bytes.len() > TBD1_REPLY_LEN {
+            return Err(ProtoError::TooLong {
+                len: bytes.len(),
+                max: TBD1_REPLY_LEN,
+            });
+        }
+        let magic = read_u32(bytes, 0);
+        if magic != TBD1_MAGIC {
+            return Err(ProtoError::BadMagic(magic));
+        }
+        let version = read_u16(bytes, 4);
+        if version != TBD1_VERSION {
+            return Err(ProtoError::BadVersion(version));
+        }
+        let status = read_u32(bytes, 12);
+        let flags = read_u32(bytes, 16);
+        for (index, offset) in [20usize, 24].iter().enumerate() {
+            let value = read_u32(bytes, *offset);
+            if value != 0 {
+                return Err(ProtoError::ReservedNotZero {
+                    offset: index,
+                    value,
+                });
+            }
+        }
+        let size = if bytes.len() >= 32 {
+            u64::from_le_bytes([
+                bytes[24], bytes[25], bytes[26], bytes[27], bytes[28], bytes[29], bytes[30],
+                bytes[31],
+            ])
+        } else {
+            0
+        };
+        Ok(Tbd1Reply {
+            sequence: read_u16(bytes, 6),
+            role: read_u32(bytes, 8),
+            status,
+            flags,
+            size,
+        })
+    }
+}
+
 fn read_u16(data: &[u8], offset: usize) -> u16 {
     u16::from_le_bytes([data[offset], data[offset + 1]])
 }
