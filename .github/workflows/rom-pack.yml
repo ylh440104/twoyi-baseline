@@ -1,0 +1,199 @@
+name: ROM pack round trip
+
+# 阶段二：验证自研 ROM 打包管线（tools/rompack）。
+#
+# 全程只用**合成树**，不下载、也不提交任何官方 ROM 或大二进制；所有产物只存在于
+# runner 的临时目录里。流程：
+#
+#   构造合成树 → pack → verify → unpack → 逐条比对文件列表/权限位/时间戳
+#   → 再 pack 一次并做 cmp（逐字节可复现） → 自定义 BOM 往返 → 负例容器必须被拒。
+#
+# 官方格式依据见 docs/ROM_FORMAT.md，工具用法与差异见 docs/ROMPACK.md。
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/rom-pack.yml'
+      - 'tools/rompack/**'
+
+permissions:
+  contents: read
+
+env:
+  ROMPACK: tools/rompack/rompack.py
+  SELFTEST: tools/rompack/selftest.py
+
+jobs:
+  roundtrip:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install zstd and record tool versions
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q
+          sudo apt-get install -y zstd
+          echo "runner=$(uname -m) $(lsb_release -ds 2>/dev/null || true)"
+          zstd --version
+          python3 --version
+          tar --version | head -1
+
+      - name: Syntax check the packer and its self-test
+        run: |
+          set -euo pipefail
+          python3 -m py_compile "$ROMPACK" "$SELFTEST"
+          python3 "$ROMPACK" --version
+          python3 "$ROMPACK" --help
+
+      - name: Build the synthetic tree
+        run: |
+          set -euo pipefail
+          tree="$RUNNER_TEMP/rompack"
+          rm -rf "$tree"
+          mkdir -p "$tree/src/level1/level2" "$tree/src/level1/empty"
+          # 3 MB 不可压缩内容：真正走到 zstd 的块编码，而不是全零特例
+          head -c 3145728 /dev/urandom > "$tree/src/level1/big.bin"
+          # 可执行脚本：必须保留 0755
+          printf '#!/bin/sh\necho twoyi-rompack\n' > "$tree/src/run.sh"
+          chmod 0755 "$tree/src/run.sh"
+          # 普通文件先给个非规范权限，验证会被归一化成 0644
+          printf 'plain text\n' > "$tree/src/level1/level2/plain.txt"
+          chmod 0600 "$tree/src/level1/level2/plain.txt"
+          # 目录先给 0777，验证会被归一化成 0755
+          chmod 0777 "$tree/src/level1/level2"
+          # 相对符号链接（任务要求）与一个绝对目标链接（ROM 里的常态）
+          ln -s ../big.bin "$tree/src/level1/level2/rel-link"
+          ln -s /system/bin/mksh "$tree/src/level1/abs-link"
+          # 中文文件名
+          printf '中文内容\n' > "$tree/src/level1/level2/中文文件.txt"
+          echo "source entries: $(find "$tree/src" -mindepth 1 | wc -l)"
+          find "$tree/src" -mindepth 1 -printf '%y %m %s %p\n' | sort
+
+      - name: Pack, verify, unpack (default BOM)
+        run: |
+          set -euo pipefail
+          tree="$RUNNER_TEMP/rompack"
+          python3 "$ROMPACK" pack "$tree/src" "$tree/a.tar.zst" \
+            --keep-tar "$tree/a.payload.tar" | tee "$tree/pack-a.log"
+          echo
+          python3 "$ROMPACK" verify "$tree/a.tar.zst" --report "$tree/verify-a.json" \
+            | tee "$tree/verify-a.log"
+          echo
+          python3 "$ROMPACK" unpack "$tree/a.tar.zst" "$tree/out-a" \
+            --manifest "$tree/manifest-a.json" | tee "$tree/unpack-a.log"
+          echo
+          sha256sum "$tree/a.tar.zst" "$tree/a.payload.tar"
+          echo "entry count (from BOM): $(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["bom"]["entryCount"])' "$tree/manifest-a.json")"
+
+      - name: Show the container layout (skippable frames + single zstd frame)
+        run: |
+          set -euo pipefail
+          tree="$RUNNER_TEMP/rompack"
+          zstd -lv "$tree/a.tar.zst" || true
+          echo
+          echo "# 前 32 字节（小端 0x184D2A50 = 50 2a 4d 18，即 BOM skippable frame）"
+          xxd -l 32 "$tree/a.tar.zst"
+
+      - name: Check file list, permission bits and normalized timestamps
+        run: |
+          set -euo pipefail
+          python3 "$SELFTEST" --tree "$RUNNER_TEMP/rompack"
+
+      - name: Pack a second time and require byte-identical output
+        run: |
+          set -euo pipefail
+          tree="$RUNNER_TEMP/rompack"
+          python3 "$ROMPACK" pack "$tree/src" "$tree/b.tar.zst" | tee "$tree/pack-b.log"
+          echo
+          sha256sum "$tree/a.tar.zst" "$tree/b.tar.zst"
+          if ! cmp "$tree/a.tar.zst" "$tree/b.tar.zst"; then
+            echo "::error::两次 pack 的输出不一致，可复现性被破坏"
+            exit 1
+          fi
+          echo "可复现性：两次 pack 输出逐字节一致（$(stat -c %s "$tree/a.tar.zst") 字节）"
+
+      - name: Pack with an explicit BOM and round-trip it
+        run: |
+          set -euo pipefail
+          tree="$RUNNER_TEMP/rompack"
+          cat > "$tree/bom.json" <<'JSON'
+          {
+            "bomVersion": "release-2-dsh-ci",
+            "channel": "ci",
+            "generator": "dsh-rompack-ci",
+            "notes": "显式 BOM 往返测试"
+          }
+          JSON
+          python3 "$ROMPACK" pack "$tree/src" "$tree/c.tar.zst" --bom "$tree/bom.json" \
+            | tee "$tree/pack-c.log"
+          python3 "$ROMPACK" verify "$tree/c.tar.zst" --report "$tree/verify-c.json" \
+            | tee "$tree/verify-c.log"
+          python3 "$ROMPACK" unpack "$tree/c.tar.zst" "$tree/out-c" \
+            --manifest "$tree/manifest-c.json" | tee "$tree/unpack-c.log"
+          python3 - "$tree" <<'PY'
+          import json, sys
+          from pathlib import Path
+          tree = Path(sys.argv[1])
+          a = json.loads((tree / "manifest-a.json").read_text(encoding="utf-8"))
+          c = json.loads((tree / "manifest-c.json").read_text(encoding="utf-8"))
+          assert c["bom"]["bomVersion"] == "release-2-dsh-ci", c["bom"]
+          assert c["bom"]["channel"] == "ci", c["bom"]
+          assert a["entries"] == c["entries"], "显式 BOM 版本解出的条目清单与默认 BOM 版本不同"
+          size_a = a["container"]["zstdFrames"][0]["contentSize"]
+          size_c = c["container"]["zstdFrames"][0]["contentSize"]
+          assert size_a == size_c, (size_a, size_c)
+          print(f"显式 BOM 往返：{len(c['entries'])} 个条目一致，载荷 {size_a} 字节一致")
+          # 默认 BOM 的统计字段必须与载荷相符
+          assert a["bom"]["entryCount"] == len(a["entries"]), a["bom"]["entryCount"]
+          assert a["bom"]["tarBytes"] == size_a, (a["bom"]["tarBytes"], size_a)
+          print("默认 BOM：entryCount/tarBytes 与载荷一致")
+          PY
+
+      - name: Reject malformed containers
+        run: |
+          set -euo pipefail
+          python3 "$SELFTEST" | tee "$RUNNER_TEMP/rompack/selftest.log"
+
+      - name: Evidence summary
+        if: always()
+        run: |
+          set -euo pipefail
+          tree="$RUNNER_TEMP/rompack"
+          {
+            echo "## ROM pack round trip"
+            echo
+            echo '| 项目 | 值 |'
+            echo '|---|---|'
+            echo "| zstd | \`$(zstd --version 2>&1 | head -1)\` |"
+            for file in a b c; do
+              if [ -f "$tree/$file.tar.zst" ]; then
+                echo "| $file.tar.zst sha256 | \`$(sha256sum "$tree/$file.tar.zst" | cut -d' ' -f1)\` |"
+                echo "| $file.tar.zst 字节 | $(stat -c %s "$tree/$file.tar.zst") |"
+              fi
+            done
+            if [ -f "$tree/manifest-a.json" ]; then
+              echo "| 条目数（BOM） | $(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["bom"]["entryCount"])' "$tree/manifest-a.json") |"
+              echo "| 载荷 tar 字节 | $(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["bom"]["tarBytes"])' "$tree/manifest-a.json") |"
+            fi
+            echo "| 两次 pack 逐字节一致 | $([ -f "$tree/b.tar.zst" ] && cmp -s "$tree/a.tar.zst" "$tree/b.tar.zst" && echo 是 || echo 未验证) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the small JSON evidence (no ROM payload)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rom-pack-reports
+          path: |
+            ${{ runner.temp }}/rompack/verify-a.json
+            ${{ runner.temp }}/rompack/verify-c.json
+            ${{ runner.temp }}/rompack/manifest-a.json
+            ${{ runner.temp }}/rompack/selftest.log
+            ${{ runner.temp }}/rompack/pack-a.log
+          if-no-files-found: warn
+          retention-days: 7
