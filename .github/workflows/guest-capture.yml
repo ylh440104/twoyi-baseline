@@ -1,0 +1,67 @@
+name: Capture the guest handshake on a real device
+
+# Turns the remaining "inference" rows of docs/STAGE1_STATUS.md into facts.
+#
+# Needs a self-hosted ARM64 Android device runner (labels below) reachable by adb,
+# with a root shell available as `su 0`. The job records the processes of the
+# package, the gfxstream endpoint directory, and the tail of the guest log.
+# Results go to a short-lived artifact; nothing is committed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Package id to capture
+        default: io.twoyi
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: [self-hosted, twoyi-dedicated-test-device]
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Find the device
+        run: |
+          set -euo pipefail
+          adb devices -l
+          adb shell getprop ro.product.cpu.abi
+          adb shell id
+      - name: Restart the app so the handshake runs again
+        run: |
+          set -euo pipefail
+          package="${{ github.event.inputs.package || 'io.twoyi' }}"
+          echo "PACKAGE=$package" >> "$GITHUB_ENV"
+          adb shell am force-stop "$package" || true
+          adb shell monkey -p "$package" -c android.intent.category.LAUNCHER 1 \
+            > "$RUNNER_TEMP/launch.log" 2>&1 || true
+          sleep 20
+          adb shell ps -A > "$RUNNER_TEMP/ps.txt" 2>&1 || true
+          grep "$package" "$RUNNER_TEMP/ps.txt" || true
+      - name: Dump the guest endpoint directory
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/gfxstream-dir.txt"
+          adb shell su 0 ls -la "/data/data/$PACKAGE/rootfs/gfxstream-vulkan" > "$out" 2>&1 || true
+          cat "$out"
+      - name: Tail the guest log
+        run: |
+          set -euo pipefail
+          adb shell su 0 tail -n 400 "/data/data/$PACKAGE/files/log.txt" \
+            > "$RUNNER_TEMP/guest-log.txt" 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: guest-capture
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/ps.txt
+            ${{ runner.temp }}/launch.log
+            ${{ runner.temp }}/gfxstream-dir.txt
+            ${{ runner.temp }}/guest-log.txt
