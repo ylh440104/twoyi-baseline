@@ -7,6 +7,7 @@
 package io.twoyi.ui;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.ProgressDialog;
 import android.content.ContentResolver;
 import android.content.Context;
@@ -39,7 +40,9 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
+import io.twoyi.GuestInstanceManager;
 import io.twoyi.GuestInstanceRegistry;
 import io.twoyi.R;
 import io.twoyi.RomPreparation;
@@ -143,6 +146,88 @@ public class SettingsActivity extends AppCompatActivity {
                     app.getString(R.string.guest_instances_unreadable, failure.getMessage())));
         }
 
+        private static String nextInstanceId(GuestInstanceRegistry registry) {
+            for (int n = 2; n < 1000; n++) {
+                String candidate = "twin-" + n;
+                if (!registry.instances().contains(candidate)) return candidate;
+            }
+            throw new IllegalStateException("No free instance name");
+        }
+
+        private void createInstance() {
+            Activity activity = getActivity();
+            if (activity == null) return;
+            Context app = activity.getApplicationContext();
+            UIHelper.defer().when(() -> {
+                GuestInstanceRegistry registry = GuestInstanceRegistry.load(
+                        GuestInstanceRegistry.defaultPath(app.getDataDir().toPath()));
+                String id = nextInstanceId(registry);
+                int slot = GuestInstanceManager.create(app.getDataDir().toPath(), registry, id);
+                return app.getString(R.string.guest_instance_created, id, slot);
+            }).done(message -> {
+                if (getActivity() != activity) return;
+                Toast.makeText(app, message, Toast.LENGTH_LONG).show();
+                refreshInstances();
+            }).fail(failure -> {
+                if (getActivity() != activity) return;
+                Toast.makeText(app, app.getString(R.string.install_failed_reason, failure.getMessage()),
+                        Toast.LENGTH_LONG).show();
+            });
+        }
+
+        private void chooseInstanceToRelease() {
+            Activity activity = getActivity();
+            if (activity == null) return;
+            Context app = activity.getApplicationContext();
+            UIHelper.defer().when(() -> GuestInstanceRegistry.load(
+                    GuestInstanceRegistry.defaultPath(app.getDataDir().toPath())).instances()
+            ).done(ids -> {
+                if (getActivity() != activity) return;
+                if (ids.isEmpty()) {
+                    Toast.makeText(app, R.string.guest_instances_empty, Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                new AlertDialog.Builder(activity)
+                        .setTitle(R.string.guest_instance_release)
+                        .setItems(ids.toArray(new String[0]),
+                                (dialog, which) -> confirmRelease(activity, ids.get(which)))
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .show();
+            }).fail(failure -> {
+                if (getActivity() != activity) return;
+                Toast.makeText(app, app.getString(R.string.guest_instances_unreadable, failure.getMessage()),
+                        Toast.LENGTH_LONG).show();
+            });
+        }
+
+        private void confirmRelease(Activity activity, String instanceId) {
+            Context app = activity.getApplicationContext();
+            UIHelper.getDialogBuilder(activity)
+                    .setTitle(android.R.string.dialog_alert_title)
+                    .setMessage(activity.getString(R.string.guest_instance_release_confirm, instanceId))
+                    .setPositiveButton(R.string.i_confirm_it, (dialog, which) -> {
+                        dialog.dismiss();
+                        UIHelper.defer().when(() -> {
+                            GuestInstanceRegistry registry = GuestInstanceRegistry.load(
+                                    GuestInstanceRegistry.defaultPath(app.getDataDir().toPath()));
+                            List<String> removed = GuestInstanceManager.release(
+                                    app.getDataDir().toPath(), registry, instanceId, true);
+                            return app.getString(R.string.guest_instance_released,
+                                    instanceId, removed.size());
+                        }).done(message -> {
+                            if (getActivity() != activity) return;
+                            Toast.makeText(app, message, Toast.LENGTH_LONG).show();
+                            refreshInstances();
+                        }).fail(failure -> {
+                            if (getActivity() != activity) return;
+                            Toast.makeText(app, app.getString(R.string.install_failed_reason,
+                                    failure.getMessage()), Toast.LENGTH_LONG).show();
+                        });
+                    })
+                    .setNegativeButton(android.R.string.cancel, (dialog, which) -> dialog.dismiss())
+                    .show();
+        }
+
         @Override
         public void onViewCreated(View view, @Nullable Bundle savedInstanceState) {
             super.onViewCreated(view, savedInstanceState);
@@ -170,6 +255,21 @@ public class SettingsActivity extends AppCompatActivity {
                 return true;
             });
             refreshInstances();
+
+            Preference createPreference = findPreference("guest_instance_create");
+            if (createPreference != null) {
+                createPreference.setOnPreferenceClickListener(preference -> {
+                    createInstance();
+                    return true;
+                });
+            }
+            Preference releasePreference = findPreference("guest_instance_release");
+            if (releasePreference != null) {
+                releasePreference.setOnPreferenceClickListener(preference -> {
+                    chooseInstanceToRelease();
+                    return true;
+                });
+            }
 
             Preference importApp = findPreference(R.string.settings_key_import_app);
             Preference export = findPreference(R.string.settings_key_manage_files);

@@ -22,4 +22,11 @@
     <string name="guest_instances_empty">No guest instances</string>
     <string name="guest_instances_unreadable">Could not read the instance list: %1$s</string>
     <string name="guest_instances_title">Guest instances</string>
+    <string name="guest_instance_create">Create guest instance</string>
+    <string name="guest_instance_create_summary">Add a new instance; its slot still needs a ROM</string>
+    <string name="guest_instance_release">Release guest instance</string>
+    <string name="guest_instance_release_summary">Choose an instance to remove</string>
+    <string name="guest_instance_release_confirm">Release %1$s and delete its system data?</string>
+    <string name="guest_instance_created">Created instance %1$s on slot %2$d</string>
+    <string name="guest_instance_released">Released %1$s and removed %2$d system tree(s)</string>
 </resources>

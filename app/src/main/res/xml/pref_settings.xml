@@ -16,6 +16,16 @@
             android:key="guest_instances"
             android:title="@string/guest_instances_title" />
 
+        <Preference
+            android:key="guest_instance_create"
+            android:summary="@string/guest_instance_create_summary"
+            android:title="@string/guest_instance_create" />
+
+        <Preference
+            android:key="guest_instance_release"
+            android:summary="@string/guest_instance_release_summary"
+            android:title="@string/guest_instance_release" />
+
         <EditTextPreference
             android:key="guest_instance_name"
             android:persistent="false"

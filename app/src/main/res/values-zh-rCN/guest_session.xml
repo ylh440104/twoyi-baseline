@@ -22,4 +22,11 @@
     <string name="guest_instances_empty">暂无来宾实例</string>
     <string name="guest_instances_unreadable">无法读取实例列表：%1$s</string>
     <string name="guest_instances_title">来宾实例</string>
+    <string name="guest_instance_create">新建来宾实例</string>
+    <string name="guest_instance_create_summary">新增一个实例；该槽位仍需安装系统</string>
+    <string name="guest_instance_release">释放来宾实例</string>
+    <string name="guest_instance_release_summary">选择要移除的实例</string>
+    <string name="guest_instance_release_confirm">确定释放 %1$s 并删除其系统数据？</string>
+    <string name="guest_instance_created">已创建实例 %1$s，槽位 %2$d</string>
+    <string name="guest_instance_released">已释放 %1$s，删除了 %2$d 个系统目录</string>
 </resources>
