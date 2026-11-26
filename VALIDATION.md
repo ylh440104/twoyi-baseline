@@ -125,6 +125,13 @@
 - Actions 全部通过（十四项 PASS），运行 https://github.com/ylh440104/twoyi-baseline/actions/runs/45787896768 ，同批 APK 构建成功。
 - 未验收：真实解包被中断（杀进程/断电）后的恢复效果。
 
+## 下次启动直接显示崩溃堆栈
+
+- 新增：若上一次启动在界面出现前崩溃，下一次启动会弹出对话框显示记录到的完整堆栈，用户点“继续”后清除记录。这样即使进不了设置、也没有 adb，也能把崩溃内容截图出来。
+- 新版本 `baseline-11261016`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11261016 ，应用 APK 211595877 字节，SHA-256 `8110327643cabb5d1f9bb37acc65e4e865754596554308ffbcbfaa75d10bac30`（与打包报告一致）。
+- 同时确认打包报告里 `lib/arm64-v8a/*.so`、`assets/rootfs.7z`、`assets/rom.ini` 的打包哈希与构建输入完全一致，排除“资源缺失导致启动失败”。
+- 闪退根因仍未确定；需要该对话框内容或 `last-crash.txt`。
+
 ## 闪退的降低风险版本
 
 - 在拿到堆栈前，先移除三条启动期风险：debug 构建不再启动 AppCenter；`RomManager.ensureBootFiles` 抛异常只记录不再中断启动；清单里未启用的四个 `:guestN` 服务声明移除（类保留，等多进程真正落地再加回）。
