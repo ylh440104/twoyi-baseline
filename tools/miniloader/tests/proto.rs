@@ -227,3 +227,33 @@ fn tbd1_reply_rejects_bad_envelopes() {
         Err(ProtoError::TooLong { max: TBD1_REPLY_LEN, .. })
     ));
 }
+
+#[test]
+fn tbd1_request_for_path_carries_an_absolute_path() {
+    use miniloader::proto::{tbd1_request_for_path, PathError, TBD1_PATH_MAX};
+
+    let block = tbd1_request_for_path(7, 0x40, "/system/bin/init").expect("block");
+    assert_eq!(block.sequence, 7);
+    assert_eq!(block.role, 0x40);
+    // payload = u32 length + path bytes
+    assert_eq!(block.payload.len(), 4 + "/system/bin/init".len());
+    let length = u32::from_le_bytes([
+        block.payload[0],
+        block.payload[1],
+        block.payload[2],
+        block.payload[3],
+    ]);
+    assert_eq!(length as usize, "/system/bin/init".len());
+    assert_eq!(&block.payload[4..], b"/system/bin/init");
+
+    assert!(matches!(
+        tbd1_request_for_path(1, 1, "system/bin/init"),
+        Err(PathError::NotAbsolute)
+    ));
+
+    let long = format!("/{}", "a".repeat(TBD1_PATH_MAX));
+    assert!(matches!(
+        tbd1_request_for_path(1, 1, &long),
+        Err(PathError::TooLong(_))
+    ));
+}

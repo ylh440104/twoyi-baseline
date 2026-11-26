@@ -15,5 +15,5 @@ pub mod stack;
 pub use elf::{Elf, ElfError, Segment};
 pub use map::{plan, MapError, MappingPlan};
 pub use broker::{Broker, ChannelError, HandshakeClient};
-pub use proto::{ProtoError, Tbd1, Tbd1Reply, B1F2};
+pub use proto::{tbd1_request_for_path, PathError, ProtoError, Tbd1, Tbd1Reply, B1F2};
 pub use stack::{build as build_stack, Auxv, StackError, StackImage};

@@ -308,6 +308,39 @@ impl Tbd1Reply {
     }
 }
 
+/// Build a `TBD1` request for an absolute guest path.
+///
+/// Confirmed by `docs/LOADER_PROTOCOL.md` §8: the payload carries an absolute path
+/// of at most 1024 bytes, the frame is exactly 3192 bytes and it is zero-filled
+/// before use. Where the path starts inside the frame is **not** confirmed, so the
+/// path is placed at the beginning of the payload and the layout is marked
+/// provisional by this constructor's name.
+pub const TBD1_PATH_MAX: usize = 0x400;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PathError {
+    NotAbsolute,
+    TooLong(usize),
+}
+
+pub fn tbd1_request_for_path(
+    sequence: u16,
+    role: u32,
+    path: &str,
+) -> Result<Tbd1, PathError> {
+    if !path.starts_with('/') {
+        return Err(PathError::NotAbsolute);
+    }
+    if path.len() > TBD1_PATH_MAX {
+        return Err(PathError::TooLong(path.len()));
+    }
+    let length = path.len() as u32;
+    let mut payload = Vec::with_capacity(4 + path.len());
+    payload.extend_from_slice(&length.to_le_bytes());
+    payload.extend_from_slice(path.as_bytes());
+    Tbd1::new(sequence, role, payload).map_err(|_| PathError::TooLong(path.len()))
+}
+
 fn read_u16(data: &[u8], offset: usize) -> u16 {
     u16::from_le_bytes([data[offset], data[offset + 1]])
 }
