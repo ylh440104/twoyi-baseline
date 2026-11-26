@@ -79,6 +79,11 @@ jobs:
           javac -d "$RUNNER_TEMP/window-tests" app/src/main/java/io/twoyi/WindowOwner.java tools/WindowOwnerTest.java
           java -cp "$RUNNER_TEMP/window-tests" io.twoyi.WindowOwnerTest
       - name: Verify legacy input paths and descriptor limits
+      - name: Verify guest slot isolation
+        run: |
+          mkdir -p "$RUNNER_TEMP/slot-tests"
+          javac -d "$RUNNER_TEMP/slot-tests" app/src/main/java/io/twoyi/GuestEndpoints.java app/src/main/java/io/twoyi/GuestSlot.java tools/GuestSlotTest.java
+          java -cp "$RUNNER_TEMP/slot-tests" io.twoyi.GuestSlotTest
         run: |
           mkdir -p "$RUNNER_TEMP/endpoint-tests"
           javac -d "$RUNNER_TEMP/endpoint-tests" app/src/main/java/io/twoyi/GuestEndpoints.java tools/GuestEndpointsTest.java
