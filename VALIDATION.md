@@ -116,6 +116,15 @@
 
 - ARM64 生命周期用例现通过正式安装器依次导入单 APK、同签名的 base 与 feature 分包组合，并检查损坏 APK 的失败清理。Actions 生成两份 API 27 测试 APK 并核对签名和打包后的哈希。实际分包安装待 ARM64 设备执行。
 
+## 实例端点隔离
+
+- `GuestEndpoints.forSlot(slot, dataDir)`：0 槽保持 `TWOYI_SOCK` / `twoyi_hal` 原名，1…3 槽分别为 `TWOYI_SOCK1..3` / `twoyi_hal1..3`。同一设备上的抽象 socket 名不能重复，这是多实例并存的前提。
+- `TwoyiSocketServer` 与 `TwoyiMessenger` 的控制 socket 名改为进程内一次性配置：监听开始前可设置，开始后拒绝更改，避免外来宾连到无人监听的名称。
+- `GuestSlotSelection` 从进程参数解析槽位：缺省为 0 槽，空串与非数字/越界值一律抛错，不静默回落到 0 槽。
+- `GuestSlot.requireDistinct` 改为按来宾目录判断冲突，不再依赖端点全等，因此仅 socket 名不同的两槽也会被正确识别为共享目录。
+- Actions 全部通过：`PASS: slot paths, process names and endpoint isolation`、`PASS: guest slot selection rejects malformed and out-of-range values`，运行 https://github.com/ylh440104/twoyi-baseline/actions/runs/45752429638 。APK 构建同批成功。
+- 仍未实现：真正的多进程服务（`:guestN`）、按槽 ROM 安装与按槽清除数据；设备侧多实例并存未验收。
+
 ## 硬件桥接证据
 
 - 从 0.5.4 配套 ROM 的 HAL 字符串确认：audio/lights/vibrator/sensors/gps 均连接抽象 socket `twoyi_hal`，camera 走独立 `twoyi_camera_transport`，hwcomposer 走渲染器共享内存。详见 docs/HAL_BRIDGE.md。
