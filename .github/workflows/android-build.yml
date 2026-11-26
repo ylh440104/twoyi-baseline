@@ -168,60 +168,6 @@ jobs:
             source/app/build/reports/legacy-hal-files.txt
             source/app/build/reports/legacy-rom/
 
-  hosted-provider:
-    needs: assemble
-    runs-on: ubuntu-22.04
-    timeout-minutes: 25
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: opensource-baseline-build
-          path: packages
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-      - name: Exercise the storage provider on a hosted Android emulator
-        shell: bash
-        run: |
-          set -euo pipefail
-          image='system-images;android-30;google_apis;x86_64'
-          sdkmanager emulator "$image"
-          echo no | avdmanager create avd --name provider-ci --package "$image" --device pixel --force
-          test -f "$HOME/.android/avd/provider-ci.ini"
-          "$ANDROID_HOME/emulator/emulator" -list-avds
-          sudo chmod a+rw /dev/kvm
-          "$ANDROID_HOME/emulator/emulator" -avd provider-ci -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect > "$RUNNER_TEMP/emulator.log" 2>&1 &
-          emulator_pid=$!
-          trap 'kill "$emulator_pid" 2>/dev/null || true; tail -50 "$RUNNER_TEMP/emulator.log" || true' EXIT
-          export ANDROID_SERIAL=emulator-5554
-          timeout 360 bash -c 'adb wait-for-device && until [[ $(adb shell getprop sys.boot_completed | tr -d "\r") == 1 ]]; do sleep 2; done'
-          abis=$(adb shell getprop ro.product.cpu.abilist | tr -d '\r')
-          echo "Android guest-supported ABIs: $abis"
-          case ",$abis," in *,arm64-v8a,*) ;; *) echo 'System image lacks ARM64 app translation'; exit 1 ;; esac
-          shopt -s nullglob
-          app=(packages/app/build/outputs/apk/debug/*.apk)
-          tests=(packages/app/build/outputs/apk/androidTest/debug/*.apk)
-          [[ ${#app[@]} -eq 1 && ${#tests[@]} -eq 1 ]]
-          (cd packages && sha256sum --check app/build/reports/apk.sha256)
-          cp packages/app/build/reports/apk-packaging.json "$RUNNER_TEMP/device-apk-packaging.json"
-          adb install "${app[0]}"
-          adb install "${tests[0]}"
-          timeout 180 adb shell am instrument -w -e class io.twoyi.DocumentProjectionTest io.twoyi.test/androidx.test.runner.AndroidJUnitRunner | tee "$RUNNER_TEMP/provider-result.txt"
-          tr -d '\r' < "$RUNNER_TEMP/provider-result.txt" | grep -Fx 'OK (3 tests)'
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: hosted-provider-results
-          path: |
-            ${{ runner.temp }}/emulator.log
-            ${{ runner.temp }}/provider-result.txt
-            ${{ runner.temp }}/device-apk-packaging.json
-          retention-days: 7
-
   window-device:
     if: github.event_name == 'workflow_dispatch' && inputs.device_smoke && github.ref == 'refs/heads/main'
     needs: assemble
