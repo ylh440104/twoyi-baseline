@@ -116,6 +116,14 @@
 
 - ARM64 生命周期用例现通过正式安装器依次导入单 APK、同签名的 base 与 feature 分包组合，并检查损坏 APK 的失败清理。Actions 生成两份 API 27 测试 APK 并核对签名和打包后的哈希。实际分包安装待 ARM64 设备执行。
 
+## 进程级槽位配置
+
+- `GuestProcessProfile` 在 `attachBaseContext` 阶段一次性解析槽位（清单元数据 `io.twoyi.GUEST_SLOT`，缺省 0），并把端点缓存下来。控制监听、渲染初始化、ROM 路径、日志路径、清数据全部读取同一份结果，不再各自从数据目录推导——之前各调用方独立推导，一旦某处忽略槽位就会跨槽串用路径。
+- `RomManager.getSlotBaseDir` 成为唯一入口：`rootfs`、`loader64`、`log.txt`、`last_kmsg.txt`、ROM 安装事务、可用空间检查都经由它。
+- `GuestDataWipe` 的越界判据由“必须是数据目录直接子项”改为“必须在数据目录内且不等于数据目录”，这样 `slots/<n>/rootfs` 这类嵌套路径可以清除，同时 `data` 本身和外部路径仍被拒绝；不存在的目标按幂等语义跳过。
+- Actions 全部通过（七项 PASS），运行 https://github.com/ylh440104/twoyi-baseline/actions/runs/45757815330 ，同批 APK 构建成功。
+- 仍未实现：真正的 `:guestN` 多进程服务、按槽安装 ROM、设备侧多实例并存验收。
+
 ## 实例目录隔离
 
 - `GuestSlotLayout` 决定每个槽的根目录：0 槽继续使用应用数据目录（已安装的旧版本仍可启动），1…3 槽位于 `data/slots/<n>`。
