@@ -116,6 +116,15 @@
 
 - ARM64 生命周期用例现通过正式安装器依次导入单 APK、同签名的 base 与 feature 分包组合，并检查损坏 APK 的失败清理。Actions 生成两份 API 27 测试 APK 并核对签名和打包后的哈希。实际分包安装待 ARM64 设备执行。
 
+## 实例切换语义
+
+- 渲染器、输入服务与来宾 init 都是进程级单例，所以“切换实例”不可能在同一进程内完成；正确语义是让**下一个进程**绑定目标槽。`GuestStartupSlot` 定义了优先级：显式槽位负载 > 注册表的活动实例 > 槽 0。
+- `GuestProcessProfile` 启动时据此解析：读注册表失败只是一个警告并回落到槽 0，不会让应用起不来；解析结果同时决定端点、socket 名、ROM 与日志路径。
+- 一个重要修正：清单里 `GUEST_SLOT=0` 是默认声明，若把它当成“显式负载”，每个进程都会被钉在槽 0，活动实例就永远不可达。现在默认值被当作“无负载”，由注册表决定；逐槽服务走 `initializeForSlot`，不经过这条判断。
+- 用例覆盖：空注册表回落槽 0、活动实例选中其槽、显式负载覆盖活动实例、非法负载抛错、释放活动实例后回落、孤儿活动实例被拒绝加载。
+- Actions 全部通过（十三项 PASS），含 `PASS: startup slot honours the payload, then the active instance`，运行 https://github.com/ylh440104/twoyi-baseline/actions/runs/45770816054 ；同批 APK 构建成功。
+- 未验收：真实切换实例（设活动实例 → 重启进程 → 来宾跑在目标槽）需要 ARM64 真机；切槽后旧槽实例的前台服务与渲染器回收也需实测。
+
 ## 按槽安装系统（界面入口）
 
 - `GuestInstanceInstaller.installBundledRom` 把随包 ROM 装到指定实例的槽：先确认没有来宾在运行、通过 `GuestMaintenance` 串行化，再调用 `RomManager.installRootfsForSlot`，成功后把实例状态置为 `READY`。
