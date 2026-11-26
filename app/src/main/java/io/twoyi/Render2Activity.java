@@ -74,6 +74,31 @@ public class Render2Activity extends Activity implements View.OnTouchListener {
         }
     });
 
+
+    /**
+     * A crash before any UI existed used to leave the user with nothing to report.
+     * The next launch shows the recorded trace instead of guessing, and clears it
+     * once the user has seen it.
+     */
+    private void showLastCrashIfAny() {
+        String report;
+        try {
+            report = CrashDiary.lastReport(this);
+        } catch (RuntimeException unreadable) {
+            return;
+        }
+        if (report == null) return;
+        new android.app.AlertDialog.Builder(this)
+                .setTitle(R.string.guest_crash_report)
+                .setMessage(report)
+                .setPositiveButton(R.string.guest_crash_continue, (dialog, which) -> {
+                    CrashDiary.clear(this);
+                    dialog.dismiss();
+                })
+                .setCancelable(false)
+                .show();
+    }
+
     private void showGuestFailedUi() {
         if (isFinishing() || isDestroyed()) {
             return;
@@ -176,6 +201,8 @@ public class Render2Activity extends Activity implements View.OnTouchListener {
 
         mLoadingLayout.setVisibility(View.VISIBLE);
         mLoadingView.startAnimation();
+
+        showLastCrashIfAny();
 
         TwoyiStatusManager status = TwoyiStatusManager.getInstance();
         status.addExitListener(mExitListener);

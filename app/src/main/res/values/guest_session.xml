@@ -41,4 +41,6 @@
     <string name="guest_self_check">Run base self check</string>
     <string name="guest_self_check_summary">Runs the container checks against this device and shows the result</string>
     <string name="guest_self_check_running">Running self check…</string>
+    <string name="guest_crash_report">Last start-up crashed</string>
+    <string name="guest_crash_continue">Continue</string>
 </resources>

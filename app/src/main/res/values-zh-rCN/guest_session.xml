@@ -41,4 +41,6 @@
     <string name="guest_self_check">运行基座自检</string>
     <string name="guest_self_check_summary">在本机验证容器基座的不变量并显示结果</string>
     <string name="guest_self_check_running">正在运行自检…</string>
+    <string name="guest_crash_report">上次启动崩溃</string>
+    <string name="guest_crash_continue">继续</string>
 </resources>
