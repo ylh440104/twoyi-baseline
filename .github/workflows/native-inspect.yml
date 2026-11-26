@@ -117,6 +117,24 @@ jobs:
             readelf -x .init_array "$so" 2>/dev/null | head -10 || true
           } > "$out"
           cat "$out"
+      - name: Seccomp and broker surface
+        run: |
+          set -euo pipefail
+          so="$RUNNER_TEMP/libs/libtwoyi.so"
+          out="$RUNNER_TEMP/seccomp-surface.txt"
+          {
+            echo '# strings mentioning the broker handshake'
+            strings -n 4 "$so" | grep -iE 'seccomp|GRB|broker|TWOYI_|prctl|SECCOMP_RET|user_notif|libdl_android' \
+              | sort -u | head -200 || true
+            echo
+            echo '# imports that a seccomp client needs'
+            nm -D --undefined-only "$so" 2>/dev/null \
+              | grep -iE 'prctl|seccomp|socketpair|sendmsg|recvmsg|ioctl|pidfd|process_vm' || true
+            echo
+            echo '# raw svc instructions (a libc-based seccomp client should need none)'
+            objdump -d "$so" 2>/dev/null | grep -c 'svc' || true
+          } > "$out"
+          cat "$out"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -130,3 +148,4 @@ jobs:
             ${{ runner.temp }}/loader-strings.txt
             ${{ runner.temp }}/twoyi-strings.txt
             ${{ runner.temp }}/jni-names.txt
+            ${{ runner.temp }}/seccomp-surface.txt
