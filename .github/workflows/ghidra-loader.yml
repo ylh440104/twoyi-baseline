@@ -1,0 +1,90 @@
+name: Decompile the guest loader
+
+# The loader is the piece that lets an Android init run without a kernel. It has
+# no exported symbols and no raw syscalls, so the logic only exists as machine
+# code. This job runs Ghidra headless on it and publishes the pseudo-C so the
+# boot handshake can be reconstructed.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/ghidra-loader.yml'
+      - 'tools/ghidra/ExportDecompiled.java'
+
+permissions:
+  contents: read
+
+jobs:
+  decompile:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Download and verify the APK
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/twoyi.apk" \
+            https://dl.twoyi.ai/twoyi_0.7.5-11131322.apk
+          echo "86ed3afaa447104f131d906c42ed8a07e207959c7869fda54bd245f62db14f4e  $RUNNER_TEMP/twoyi.apk" \
+            | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/libs"
+          unzip -o -j "$RUNNER_TEMP/twoyi.apk" 'lib/arm64-v8a/libloader.so' -d "$RUNNER_TEMP/libs" >/dev/null
+          ls -l "$RUNNER_TEMP/libs"
+      - name: Fetch Ghidra
+        run: |
+          set -euo pipefail
+          ghidra_zip="$RUNNER_TEMP/ghidra.zip"
+          curl --fail --location --retry 3 -o "$ghidra_zip" \
+            https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_11.0.3_build/ghidra_11.0.3_PUBLIC_20240410.zip
+          unzip -q "$ghidra_zip" -d "$RUNNER_TEMP/ghidra"
+          ls "$RUNNER_TEMP/ghidra"
+          find "$RUNNER_TEMP/ghidra" -maxdepth 2 -name analyzeHeadless
+      - name: Run headless analysis
+        run: |
+          set -euo pipefail
+          headless=$(find "$RUNNER_TEMP/ghidra" -maxdepth 2 -name analyzeHeadless | head -1)
+          test -n "$headless"
+          export DECOMP_OUT="$RUNNER_TEMP/loader-decompiled.txt"
+          project="$RUNNER_TEMP/ghidra-project"
+          mkdir -p "$project"
+          timeout 3000 "$headless" "$project" loader -import "$RUNNER_TEMP/libs/libloader.so" \
+            -scriptPath "$GITHUB_WORKSPACE/tools/ghidra" \
+            -postScript ExportDecompiled.java -deleteProject \
+            > "$RUNNER_TEMP/ghidra.log" 2>&1 || echo "headless exited $?"
+          tail -30 "$RUNNER_TEMP/ghidra.log" || true
+          ls -l "$DECOMP_OUT" || true
+          head -60 "$DECOMP_OUT" || true
+      - name: Extract the interesting parts
+        run: |
+          set -euo pipefail
+          src="$RUNNER_TEMP/loader-decompiled.txt"
+          out="$RUNNER_TEMP/loader-focus.txt"
+          {
+            echo '# size'
+            wc -l "$src" || true
+            echo
+            echo '# functions mentioning the boot flags or linker'
+            grep -n -B2 -A40 'TWOYI_ROOTFS_EXEC\|linker64\|linker\|__libc_init' "$src" \
+              | head -400 || true
+            echo
+            echo '# environment reads'
+            grep -n 'getenv' "$src" | head -40 || true
+          } > "$out"
+          head -200 "$out"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: loader-decompiled
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/loader-decompiled.txt
+            ${{ runner.temp }}/loader-focus.txt
+            ${{ runner.temp }}/ghidra.log
