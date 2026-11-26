@@ -1,0 +1,15 @@
+name: arm64 runner probe
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    steps:
+      - name: Report host capabilities
+        run: |
+          uname -m
+          nproc
+          ls -l /dev/kvm 2>&1 || true
