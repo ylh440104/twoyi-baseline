@@ -41,8 +41,11 @@ public class TwoyiApplication extends Application {
     protected void attachBaseContext(Context base) {
         super.attachBaseContext(base);
 
-        // First statement: capture a crash that happens before any UI exists.
+        // First statements: capture a crash that happens before any UI exists, and
+        // leave breadcrumbs a native crash would otherwise erase.
+        StartupTrace.begin(base);
         CrashDiary.install(base);
+        StartupTrace.step(base, "application attach");
 
         try {
             RomManager.ensureBootFiles(base);
@@ -50,7 +53,9 @@ public class TwoyiApplication extends Application {
             android.util.Log.e("TwoyiApplication", "boot files could not be prepared", unready);
             CrashDiary.record(this, Thread.currentThread(), unready);
         }
+        StartupTrace.step(base, "boot files ready");
         startGuestEndpoints(base);
+        StartupTrace.step(base, "control listener started");
     }
 
     /**

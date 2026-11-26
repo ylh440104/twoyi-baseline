@@ -54,6 +54,12 @@ public final class GuestSelfCheck {
                 }
             }
         }
+        String trace = StartupTrace.read(app);
+        if (trace != null) {
+            lines.add("");
+            lines.add("--- start-up trace ---");
+            lines.add(truncate(trace, 2000));
+        }
         String crash = CrashDiary.lastReport(app);
         if (crash != null) {
             lines.add("");

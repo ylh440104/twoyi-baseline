@@ -87,12 +87,19 @@ public class Render2Activity extends Activity implements View.OnTouchListener {
         } catch (RuntimeException unreadable) {
             return;
         }
-        if (report == null) return;
+        String trace = StartupTrace.read(this);
+        if (report == null && trace == null) return;
+        if (report == null) {
+            report = trace;
+        } else if (trace != null) {
+            report = report + "\n\n--- previous start-up ---\n" + trace;
+        }
         new android.app.AlertDialog.Builder(this)
                 .setTitle(R.string.guest_crash_report)
                 .setMessage(report)
                 .setPositiveButton(R.string.guest_crash_continue, (dialog, which) -> {
                     CrashDiary.clear(this);
+                    StartupTrace.clear(this);
                     dialog.dismiss();
                 })
                 .setCancelable(false)
@@ -184,9 +191,11 @@ public class Render2Activity extends Activity implements View.OnTouchListener {
         // The process starts with an incomplete latch. Activity recreation
         // must not reset it or race a BOOT_COMPLETED notification.
 
+        StartupTrace.step(this, "activity create");
         NavUtils.hideNavigation(getWindow());
 
         setContentView(R.layout.ac_render);
+        StartupTrace.step(this, "layout inflated");
         mRootView = findViewById(R.id.root);
 
         mSurfaceView = new SurfaceView(this);
@@ -202,6 +211,7 @@ public class Render2Activity extends Activity implements View.OnTouchListener {
         mLoadingLayout.setVisibility(View.VISIBLE);
         mLoadingView.startAnimation();
 
+        StartupTrace.step(this, "views bound");
         showLastCrashIfAny();
 
         TwoyiStatusManager status = TwoyiStatusManager.getInstance();
@@ -215,6 +225,7 @@ public class Render2Activity extends Activity implements View.OnTouchListener {
             // Do not reinstall or reinitialize a ROM that is already running.
             mRootView.addView(mSurfaceView, 0);
         } else {
+            StartupTrace.step(this, "rom preparation requested");
             UITips.checkForAndroid12(this, this::bootSystem);
         }
 
@@ -380,6 +391,7 @@ public class Render2Activity extends Activity implements View.OnTouchListener {
 
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
+        StartupTrace.step(this, "focus " + hasFocus);
         super.onWindowFocusChanged(hasFocus);
 
         if (hasFocus) {
