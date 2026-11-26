@@ -1,0 +1,125 @@
+name: Inspect the newest ROM
+
+# Downloads the official 0.7.5 APK on the runner, extracts its guest ROM and
+# records how that ROM is built. Nothing proprietary is committed: only a small
+# text/markdown report is uploaded as an artifact.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/rom-inspect.yml'
+      - 'tools/inspect_rom.sh'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Download the official APK
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/twoyi-0.7.5.apk" \
+            https://dl.twoyi.ai/twoyi_0.7.5-11131322.apk
+          echo "86ed3afaa447104f131d906c42ed8a07e207959c7869fda54bd245f62db14f4e  $RUNNER_TEMP/twoyi-0.7.5.apk" \
+            | sha256sum --check
+          unzip -l "$RUNNER_TEMP/twoyi-0.7.5.apk" | grep -E 'assets/' | head -40
+          unzip -p "$RUNNER_TEMP/twoyi-0.7.5.apk" assets/rootfs.tar.zst > "$RUNNER_TEMP/rootfs.tar.zst"
+          ls -l "$RUNNER_TEMP/rootfs.tar.zst"
+      - name: Install zstd
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y zstd
+      - name: Describe the ROM container
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/rom-container.txt"
+          {
+            echo '# zstd frame'
+            zstd -lv "$RUNNER_TEMP/rootfs.tar.zst" 2>&1 || true
+            echo
+            echo '# first bytes'
+            xxd -l 32 "$RUNNER_TEMP/rootfs.tar.zst" || od -An -tx1 -N32 "$RUNNER_TEMP/rootfs.tar.zst"
+          } > "$report"
+          cat "$report"
+      - name: Extract and describe the tree
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/rom"
+          mkdir -p "$work"
+          time tar --use-compress-program=unzstd -xf "$RUNNER_TEMP/rootfs.tar.zst" -C "$work"
+          report="$RUNNER_TEMP/rom-tree.txt"
+          {
+            echo '# top-level entries'
+            ls -la "$work" | head -40
+            echo
+            echo '# entry count and bytes'
+            find "$work" -mindepth 1 | wc -l
+            du -sb "$work"
+            echo
+            echo '# largest directories'
+            du -sb "$work"/* 2>/dev/null | sort -rn | head -20
+            echo
+            echo '# key files'
+            for f in init init.rc default.prop fstab.goldfish ueventd.rc ld.config.txt; do
+              printf '%s %s\n' "$f" "$(test -e "$work/$f" && echo present || echo missing)"
+            done
+            for f in system/build.prop system/bin/init vendor/build.prop system/etc/permissions/twoyi.xml; do
+              printf '%s %s\n' "$f" "$(test -e "$work/$f" && echo present || echo missing)"
+            done
+            echo
+            echo '# build identity'
+            for prop in ro.build.fingerprint ro.build.id ro.build.version.release ro.product.device ro.build.type ro.product.manufacturer; do
+              grep -h "^$prop=" "$work/default.prop" "$work/system/build.prop" 2>/dev/null || echo "$prop=<absent>"
+            done
+            echo
+            echo '# HAL modules'
+            find "$work" -path '*/hw/*.so' 2>/dev/null | sed "s|$work/||" | sort | head -40
+            echo
+            echo '# HAL module count'
+            find "$work" -path '*/hw/*.so' 2>/dev/null | wc -l
+          } > "$report"
+          cat "$report"
+      - name: Compare with the 0.5.4 ROM layout
+        run: |
+          set -euo pipefail
+          # The legacy ROM is a 7z; list it here so the two layouts can be diffed.
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/legacy.apk" \
+            https://github.com/twoyi/twoyi/releases/download/0.5.4/twoyi_0.5.4-03211927-release.apk
+          echo "ca5e25b3d1852c3b9df8f776f5798269de3c3c40fbf4b92c3768f483ee1a71b5  $RUNNER_TEMP/legacy.apk" \
+            | sha256sum --check
+          unzip -p "$RUNNER_TEMP/legacy.apk" assets/rootfs.7z > "$RUNNER_TEMP/rootfs.7z"
+          sudo apt-get install -y p7zip-full >/dev/null
+          new_list="$RUNNER_TEMP/new-paths.txt"
+          old_list="$RUNNER_TEMP/old-paths.txt"
+          (cd "$RUNNER_TEMP/rom" && find . -mindepth 1 | sed 's|^\./||' | sort) > "$new_list"
+          # path column of 7z -slt
+          7z l -slt "$RUNNER_TEMP/rootfs.7z" | awk -F' = ' '/^Path = /{print $2}' \
+            | sed 's|^rootfs/||' | grep -v '^$' | grep -v '^rootfs$' | sort > "$old_list"
+          {
+            echo '# entries: new / old'
+            wc -l "$new_list" "$old_list"
+            echo
+            echo '# only in the newest ROM (first 80)'
+            comm -23 "$new_list" "$old_list" | head -80
+            echo
+            echo '# only in the legacy ROM (first 40)'
+            comm -13 "$new_list" "$old_list" | head -40
+          } > "$RUNNER_TEMP/rom-diff.txt"
+          cat "$RUNNER_TEMP/rom-diff.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: newest-rom-inspection
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/rom-container.txt
+            ${{ runner.temp }}/rom-tree.txt
+            ${{ runner.temp }}/rom-diff.txt
