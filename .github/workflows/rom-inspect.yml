@@ -66,18 +66,34 @@ jobs:
             echo '# largest directories'
             du -sb "$work"/* 2>/dev/null | sort -rn | head -20
             echo
+            echo '# layout of the single top-level directory'
+            ls -la "$work/rootfs" | head -40
+            echo
+            echo '# entry types'
+            echo "regular $(find "$work" -type f | wc -l)"
+            echo "symlink $(find "$work" -type l | wc -l)"
+            echo "dir     $(find "$work" -type d | wc -l)"
+            echo "elf     $(find "$work" -type f -exec file {} + 2>/dev/null | grep -c 'ELF')"
+            echo
             echo '# key files'
-            for f in init init.rc default.prop fstab.goldfish ueventd.rc ld.config.txt; do
-              printf '%s %s\n' "$f" "$(test -e "$work/$f" && echo present || echo missing)"
-            done
-            for f in system/build.prop system/bin/init vendor/build.prop system/etc/permissions/twoyi.xml; do
+            for f in rootfs/init rootfs/init.rc rootfs/default.prop rootfs/fstab.goldfish rootfs/ueventd.rc rootfs/system/bin/init rootfs/system/build.prop rootfs/system/etc/permissions/twoyi.xml rootfs/sepolicy rootfs/system/etc/selinux; do
               printf '%s %s\n' "$f" "$(test -e "$work/$f" && echo present || echo missing)"
             done
             echo
+            echo '# is /system/vendor a link?'
+            ls -ld "$work/rootfs/system/vendor" 2>/dev/null || true
+            echo
+            echo '# ownership sample (tar metadata)'
+            tar --use-compress-program=unzstd -tvf "$RUNNER_TEMP/rootfs.tar.zst" | head -8
+            echo
             echo '# build identity'
-            for prop in ro.build.fingerprint ro.build.id ro.build.version.release ro.product.device ro.build.type ro.product.manufacturer; do
-              grep -h "^$prop=" "$work/default.prop" "$work/system/build.prop" 2>/dev/null || echo "$prop=<absent>"
+            for prop in ro.build.fingerprint ro.build.id ro.build.version.release ro.product.device ro.build.type ro.product.manufacturer ro.build.version.sdk; do
+              grep -h "^$prop=" "$work/rootfs/default.prop" "$work/rootfs/system/build.prop" 2>/dev/null || echo "$prop=<absent>"
             done
+            echo
+            echo '# twoyi-specific pieces'
+            grep -l 'twoyi\|Twoyi' "$work/rootfs/system/etc/permissions/"*.xml 2>/dev/null | sed "s|$work/||" || true
+            head -12 "$work/rootfs/init.goldfish.rc" 2>/dev/null || true
             echo
             echo '# HAL modules'
             find "$work" -path '*/hw/*.so' 2>/dev/null | sed "s|$work/||" | sort | head -40
@@ -95,10 +111,10 @@ jobs:
           echo "ca5e25b3d1852c3b9df8f776f5798269de3c3c40fbf4b92c3768f483ee1a71b5  $RUNNER_TEMP/legacy.apk" \
             | sha256sum --check
           unzip -p "$RUNNER_TEMP/legacy.apk" assets/rootfs.7z > "$RUNNER_TEMP/rootfs.7z"
-          sudo apt-get install -y p7zip-full >/dev/null
+          sudo apt-get install -y p7zip-full
           new_list="$RUNNER_TEMP/new-paths.txt"
           old_list="$RUNNER_TEMP/old-paths.txt"
-          (cd "$RUNNER_TEMP/rom" && find . -mindepth 1 | sed 's|^\./||' | sort) > "$new_list"
+          (cd "$RUNNER_TEMP/rom/rootfs" && find . -mindepth 1 | sed 's|^\./||' | sort) > "$new_list"
           # path column of 7z -slt
           7z l -slt "$RUNNER_TEMP/rootfs.7z" | awk -F' = ' '/^Path = /{print $2}' \
             | sed 's|^rootfs/||' | grep -v '^$' | grep -v '^rootfs$' | sort > "$old_list"
