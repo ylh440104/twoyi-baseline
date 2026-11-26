@@ -116,6 +116,14 @@
 
 - ARM64 生命周期用例现通过正式安装器依次导入单 APK、同签名的 base 与 feature 分包组合，并检查损坏 APK 的失败清理。Actions 生成两份 API 27 测试 APK 并核对签名和打包后的哈希。实际分包安装待 ARM64 设备执行。
 
+## 按槽安装与路径守卫
+
+- `RomManager.installRootfsForSlot(context, slot, thirdParty)` 允许把 ROM 装到指定槽；`installRootfs` 仍装到当前进程的槽。两者共用一个按目录参数化的私有实现，事务目录就是该槽的根目录，因此准备第二个槽不会碰到当前槽。
+- `tools/check_slot_paths.py` 作为回归守卫：禁止再用 `getDataDir()` 直接拼 `rootfs` / `log.txt` / `last_kmsg.txt` / `loader64` / `socket`，也禁止把 ROM 事务锚在数据目录上；同时要求 `getSlotBaseDir(Context, int)`、`installRootfsForSlot`、`LogEvents` 的槽路径调用存在。守卫本身做过反向验证：把 `LogEvents` 改回数据目录写法后脚本报 `FAIL` 并返回 1，恢复后重新 `PASS`。
+- Actions 全部通过（十一项 PASS），含 `PASS: guest state paths are derived from the slot layout only`，运行 https://github.com/ylh440104/twoyi-baseline/actions/runs/45765462711 ；同批 APK 构建成功。
+- 按槽安装的真实解包仍只能在设备上验证（依赖 p7zip 与 Android assets），未验收。
+- 仍未实现：把来宾跑在 `:guestN` 进程里、设备侧多实例并存验收、zst ROM 换代、Compose 界面重写。
+
 ## 实例启动闸门
 
 - `GuestInstanceGate` 把“注册表说这个实例占哪个槽”和“该槽确实有可启动的 ROM”两件事合并判断：未注册实例返回 `UNKNOWN_INSTANCE`，注册了但槽里没有 `init` + `system` 返回 `NO_ROM`，两者都不会放行到 `init`。
