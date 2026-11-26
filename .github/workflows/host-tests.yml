@@ -81,12 +81,12 @@ jobs:
       - name: Verify legacy input paths and descriptor limits
         run: |
           mkdir -p "$RUNNER_TEMP/endpoint-tests"
-          javac -d "$RUNNER_TEMP/endpoint-tests" app/src/main/java/io/twoyi/GuestEndpoints.java app/src/main/java/io/twoyi/GuestSlot.java app/src/main/java/io/twoyi/GuestSlotLayout.java tools/GuestEndpointsTest.java
+          javac -d "$RUNNER_TEMP/endpoint-tests" app/src/main/java/io/twoyi/GuestEndpoints.java app/src/main/java/io/twoyi/GuestSlot.java app/src/main/java/io/twoyi/GuestSlotLayout.java app/src/main/java/io/twoyi/GuestSlotSelection.java tools/GuestEndpointsTest.java
           java -cp "$RUNNER_TEMP/endpoint-tests" io.twoyi.GuestEndpointsTest
       - name: Verify guest slot isolation
         run: |
           mkdir -p "$RUNNER_TEMP/slot-tests"
-          javac -d "$RUNNER_TEMP/slot-tests" app/src/main/java/io/twoyi/GuestEndpoints.java app/src/main/java/io/twoyi/GuestSlot.java app/src/main/java/io/twoyi/GuestSlotLayout.java tools/GuestSlotTest.java
+          javac -d "$RUNNER_TEMP/slot-tests" app/src/main/java/io/twoyi/GuestEndpoints.java app/src/main/java/io/twoyi/GuestSlot.java app/src/main/java/io/twoyi/GuestSlotLayout.java app/src/main/java/io/twoyi/GuestSlotSelection.java tools/GuestSlotTest.java
           java -cp "$RUNNER_TEMP/slot-tests" io.twoyi.GuestSlotTest
       - name: Verify HAL connection tracking
         run: |
