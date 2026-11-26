@@ -22,6 +22,11 @@
             android:title="@string/guest_instance_create" />
 
         <Preference
+            android:key="guest_instance_prepare"
+            android:summary="@string/guest_instance_prepare_summary"
+            android:title="@string/guest_instance_prepare" />
+
+        <Preference
             android:key="guest_instance_release"
             android:summary="@string/guest_instance_release_summary"
             android:title="@string/guest_instance_release" />

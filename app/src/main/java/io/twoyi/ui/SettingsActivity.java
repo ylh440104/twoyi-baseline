@@ -42,6 +42,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
+import io.twoyi.GuestInstanceInstaller;
 import io.twoyi.GuestInstanceManager;
 import io.twoyi.GuestInstanceRegistry;
 import io.twoyi.R;
@@ -154,6 +155,48 @@ public class SettingsActivity extends AppCompatActivity {
             throw new IllegalStateException("No free instance name");
         }
 
+        private void chooseInstanceToPrepare() {
+            Activity activity = getActivity();
+            if (activity == null) return;
+            Context app = activity.getApplicationContext();
+            UIHelper.defer().when(() -> GuestInstanceRegistry.load(
+                    GuestInstanceRegistry.defaultPath(app.getDataDir().toPath())).instances()
+            ).done(ids -> {
+                if (getActivity() != activity) return;
+                if (ids.isEmpty()) {
+                    Toast.makeText(app, R.string.guest_instances_empty, Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                new AlertDialog.Builder(activity)
+                        .setTitle(R.string.guest_instance_prepare)
+                        .setItems(ids.toArray(new String[0]),
+                                (dialog, which) -> installForInstance(activity, ids.get(which)))
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .show();
+            }).fail(failure -> {
+                if (getActivity() != activity) return;
+                Toast.makeText(app, app.getString(R.string.guest_instances_unreadable, failure.getMessage()),
+                        Toast.LENGTH_LONG).show();
+            });
+        }
+
+        private void installForInstance(Activity activity, String instanceId) {
+            Context app = activity.getApplicationContext();
+            Toast.makeText(app, R.string.guest_instance_prepare_running, Toast.LENGTH_SHORT).show();
+            UIHelper.defer().when(() -> GuestInstanceInstaller.installBundledRom(app, instanceId)
+            ).done(ready -> {
+                if (getActivity() != activity) return;
+                Toast.makeText(app, app.getString(R.string.guest_instance_prepare_done, instanceId,
+                        String.valueOf(ready)), Toast.LENGTH_LONG).show();
+                refreshInstances();
+            }).fail(failure -> {
+                if (getActivity() != activity) return;
+                Toast.makeText(app, app.getString(R.string.install_failed_reason, failure.getMessage()),
+                        Toast.LENGTH_LONG).show();
+                refreshInstances();
+            });
+        }
+
         private void createInstance() {
             Activity activity = getActivity();
             if (activity == null) return;
@@ -260,6 +303,13 @@ public class SettingsActivity extends AppCompatActivity {
             if (createPreference != null) {
                 createPreference.setOnPreferenceClickListener(preference -> {
                     createInstance();
+                    return true;
+                });
+            }
+            Preference preparePreference = findPreference("guest_instance_prepare");
+            if (preparePreference != null) {
+                preparePreference.setOnPreferenceClickListener(preference -> {
+                    chooseInstanceToPrepare();
                     return true;
                 });
             }

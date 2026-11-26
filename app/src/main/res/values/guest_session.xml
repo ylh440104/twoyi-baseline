@@ -29,4 +29,8 @@
     <string name="guest_instance_release_confirm">Release %1$s and delete its system data?</string>
     <string name="guest_instance_created">Created instance %1$s on slot %2$d</string>
     <string name="guest_instance_released">Released %1$s and removed %2$d system tree(s)</string>
+    <string name="guest_instance_prepare">Install system for instance</string>
+    <string name="guest_instance_prepare_summary">Install the bundled ROM into a chosen slot</string>
+    <string name="guest_instance_prepare_running">Preparing the system, keep the app open…</string>
+    <string name="guest_instance_prepare_done">Instance %1$s: system ready = %2$s</string>
 </resources>

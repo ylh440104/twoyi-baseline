@@ -29,4 +29,8 @@
     <string name="guest_instance_release_confirm">确定释放 %1$s 并删除其系统数据？</string>
     <string name="guest_instance_created">已创建实例 %1$s，槽位 %2$d</string>
     <string name="guest_instance_released">已释放 %1$s，删除了 %2$d 个系统目录</string>
+    <string name="guest_instance_prepare">为实例安装系统</string>
+    <string name="guest_instance_prepare_summary">把随包系统安装到指定槽位</string>
+    <string name="guest_instance_prepare_running">正在准备系统，请保持应用打开…</string>
+    <string name="guest_instance_prepare_done">实例 %1$s：系统就绪 = %2$s</string>
 </resources>
