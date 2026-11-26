@@ -125,6 +125,13 @@
 - Actions 全部通过（十四项 PASS），运行 https://github.com/ylh440104/twoyi-baseline/actions/runs/45787896768 ，同批 APK 构建成功。
 - 未验收：真实解包被中断（杀进程/断电）后的恢复效果。
 
+## 闪退的降低风险版本
+
+- 在拿到堆栈前，先移除三条启动期风险：debug 构建不再启动 AppCenter；`RomManager.ensureBootFiles` 抛异常只记录不再中断启动；清单里未启用的四个 `:guestN` 服务声明移除（类保留，等多进程真正落地再加回）。
+- 设置页对偏好查找做空值保护，避免布局与实际条目不一致时 NPE。
+- 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
+- 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
+
 ## 启动闪退诊断（真机反馈）
 
 - 用户安装 `baseline-11260913` 后反馈启动即闪退。没有堆栈时任何猜测都不可靠，因此新增 `CrashDiary`：`attachBaseContext` 的第一条语句就装默认未捕获异常处理器，把时间、设备、线程和完整堆栈写入 `filesDir/last-crash.txt` 与外部私有目录同名文件，自检对话框也会附上最近一次崩溃。
