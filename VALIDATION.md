@@ -116,6 +116,14 @@
 
 - ARM64 生命周期用例现通过正式安装器依次导入单 APK、同签名的 base 与 feature 分包组合，并检查损坏 APK 的失败清理。Actions 生成两份 API 27 测试 APK 并核对签名和打包后的哈希。实际分包安装待 ARM64 设备执行。
 
+## 实例创建与释放
+
+- `GuestInstanceManager.create` 分配最低空闲槽并立即持久化；保存失败会回滚内存中的占用，避免内存与磁盘不一致、下次启动看不到该实例。
+- `GuestInstanceManager.release(..., wipeData)` 释放槽位，可选删除该槽的 `rootfs`，让槽回到“没有安装 ROM”而不是看起来可启动；`RUNNING` 状态拒绝释放；未知实例是空操作，绝不猜测槽位去删数据。
+- 用例覆盖：首次分配得槽 0、重新加载仍可见、不删数据的释放、复用槽 0、槽 1 嵌套子树的定点删除（不删 `slots` 容器）、未知实例空操作、运行中拒绝释放、参数非法。
+- Actions 全部通过（十二项 PASS），含 `PASS: instance manager allocates, frees and wipes exactly one slot`，运行 https://github.com/ylh440104/twoyi-baseline/actions/runs/45766740615 ；同批 APK 构建成功。
+- 仍未实现：设置页里的创建/释放入口（当前只在设置页做只读列表）、按槽解包的真实设备验证、`:guestN` 进程承载、设备侧多实例并存验收。
+
 ## 按槽安装与路径守卫
 
 - `RomManager.installRootfsForSlot(context, slot, thirdParty)` 允许把 ROM 装到指定槽；`installRootfs` 仍装到当前进程的槽。两者共用一个按目录参数化的私有实现，事务目录就是该槽的根目录，因此准备第二个槽不会碰到当前槽。
