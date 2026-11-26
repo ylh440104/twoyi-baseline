@@ -139,6 +139,14 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 最新版逻辑复原（全量反编译）
+
+- 云端全量 jadx（run 45813416528）：`io.twoyi` 155 类、顶层 309 包、4705 个 java 文件；产物为 3 天期 artifact（2.6 MB），未入库。
+- 关键结论写入 `docs/NEWEST_LOGIC.md`：启动改为 `DirectLauncher.prepare(loader, cmdline, …)` + `waitForExit()`，实例号经 `androidboot.twoyi.instance`；渲染改为 `configureEndpoints` + `prepare` + `attachWindow` 并换成 **gfxstream/Vulkan**；`handleTouch` 不再带窗口尺寸。
+- 重要修正：`RomManager.getRootfsDir(Context, v7.a)` 直接返回共享 rootfs，说明 0.7.5 **不是每槽一份系统**，我此前按槽隔离 rootfs 的假设不成立。
+- 端点仍是全局固定常量（`TWOYI_SOCK`、`twoyi_hal`、`rootfs/gfxstream-vulkan`），且进程内只允许配置一次，与“socket 名不可按槽改名”的结论一致。
+- 未解问题已列清单：共享 rootfs 下的实例数据隔离、gfxstream 目录的生成与消费、loader 如何无内核拉起 init、resolver HAL 988 字节响应结构。
+
 ## 最新版 ROM 实测
 
 - 云端 `rom-inspect` 任务（run 45812271640）下载官方 0.7.5 APK 并解出 `assets/rootfs.tar.zst`：212,205,950 字节 → 626,176,000 字节，单 zstd 帧（64 MiB 窗口、XXH64）+ 2 个 skippable 帧，其中一个是 JSON `bomVersion` 物料清单。
