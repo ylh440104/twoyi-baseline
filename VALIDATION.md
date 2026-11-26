@@ -116,6 +116,16 @@
 
 - ARM64 生命周期用例现通过正式安装器依次导入单 APK、同签名的 base 与 feature 分包组合，并检查损坏 APK 的失败清理。Actions 生成两份 API 27 测试 APK 并核对签名和打包后的哈希。实际分包安装待 ARM64 设备执行。
 
+## 实例注册表
+
+- `GuestInstanceRegistry` 决定哪个实例占用哪个槽、哪个是活动实例、进展到哪一步（`RESERVED` / `READY` / `RUNNING`）。它不存来宾数据，也不启动进程，只负责防止两个实例拿到同一个槽。
+- 分配取最低空闲槽；释放后可被复用；释放活动实例会清空指针；不存在或状态非法的注册表文件一律拒绝加载，不会静默丢数据。
+- 状态文件写在 `data/instances.tsv`（各槽共享，因此放在数据根目录），采用临时文件 + 原子改名，崩溃只会留下旧版或新版之一。
+- 设置页新增“来宾实例”项，后台读取注册表并以 `id → slot n (状态)` 形式列出；读取失败时显示错误而不是空列表。APK 云端构建通过，说明设置页与注册表代码可编译。
+- Actions 全部通过，含 `PASS: instance registry allocates slots, persists atomically and rejects bad state`，运行 https://github.com/ylh440104/twoyi-baseline/actions/runs/45760331731 。
+- 新增 `pure-java-compile` 任务：一次编译全部无 Android 依赖的主代码类，避免再次出现“某个用例的 `javac` 少了依赖”这类只在云端才暴露的问题。
+- 仍未实现：实例创建后按槽安装 ROM、真正的 `:guestN` 多进程服务、设备侧多实例并存验收。
+
 ## 进程级槽位配置
 
 - `GuestProcessProfile` 在 `attachBaseContext` 阶段一次性解析槽位（清单元数据 `io.twoyi.GUEST_SLOT`，缺省 0），并把端点缓存下来。控制监听、渲染初始化、ROM 路径、日志路径、清数据全部读取同一份结果，不再各自从数据目录推导——之前各调用方独立推导，一旦某处忽略槽位就会跨槽串用路径。
