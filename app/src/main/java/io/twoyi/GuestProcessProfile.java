@@ -34,6 +34,21 @@ public final class GuestProcessProfile {
         endpoints = derived;
     }
 
+    /**
+     * Bind the process to an explicit slot. A per-slot service knows its slot
+     * from its own class name, which a manifest value cannot express.
+     */
+    public static synchronized void initializeForSlot(Context context, int slotIndex) {
+        if (slotIndex < 0 || slotIndex >= GuestSlot.SLOT_COUNT) {
+            throw new IllegalArgumentException("Guest slot out of range: " + slotIndex);
+        }
+        File dataDir = context.getApplicationContext().getDataDir();
+        String argument = Integer.toString(slotIndex);
+        endpoints = GuestSlotLayout.endpoints(argument, dataDir);
+        slotArgument = argument;
+        slot = slotIndex;
+    }
+
     /** Slot resolved for this process; 0 when nothing was configured. */
     public static int slot() {
         return slot;

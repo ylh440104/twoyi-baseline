@@ -123,6 +123,11 @@ jobs:
           mkdir -p "$RUNNER_TEMP/hal-conn-tests"
           javac -d "$RUNNER_TEMP/hal-conn-tests" app/src/main/java/io/twoyi/HalConnectionRegistry.java tools/HalConnectionRegistryTest.java
           java -cp "$RUNNER_TEMP/hal-conn-tests" io.twoyi.HalConnectionRegistryTest
+      - name: Verify per-slot service class mapping
+        run: |
+          mkdir -p "$RUNNER_TEMP/service-slot-tests"
+          javac -d "$RUNNER_TEMP/service-slot-tests" app/src/main/java/io/twoyi/GuestSlot.java app/src/main/java/io/twoyi/GuestSlotSelection.java tools/GuestServiceSlotTest.java
+          java -cp "$RUNNER_TEMP/service-slot-tests" io.twoyi.GuestServiceSlotTest
       - name: Verify guest instance registry
         run: |
           mkdir -p "$RUNNER_TEMP/instance-registry-tests"
