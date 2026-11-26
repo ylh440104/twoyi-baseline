@@ -116,6 +116,15 @@
 
 - ARM64 生命周期用例现通过正式安装器依次导入单 APK、同签名的 base 与 feature 分包组合，并检查损坏 APK 的失败清理。Actions 生成两份 API 27 测试 APK 并核对签名和打包后的哈希。实际分包安装待 ARM64 设备执行。
 
+## 按槽安装系统（界面入口）
+
+- `GuestInstanceInstaller.installBundledRom` 把随包 ROM 装到指定实例的槽：先确认没有来宾在运行、通过 `GuestMaintenance` 串行化，再调用 `RomManager.installRootfsForSlot`，成功后把实例状态置为 `READY`。
+- 已就绪的槽直接返回，不重复解包；解包完成后重新加载注册表再写状态，避免“解包期间实例被释放”把已释放的实例写回来。
+- 设置页新增“为实例安装系统”，先列实例再在后台执行，结束刷新列表并提示结果。
+- 公开构建：APK 云端构建成功（https://github.com/ylh440104/twoyi-baseline/actions/runs/45769214940 ，产物 `opensource-baseline-build` 211402557 字节），host 回归同批通过，说明安装器与界面代码可编译打包。
+- 未验收：解包本身依赖 Android assets 与 p7zip，只能在设备上验证；槽 1…3 的实际安装、耗时与失败清理均待 ARM64 真机。
+- 仍未实现：把来宾跑在 `:guestN` 进程里、设备侧多实例并存、zst ROM 换代。
+
 ## 设置页实例入口
 
 - 设置页新增“新建来宾实例”和“释放来宾实例”两项，均走 `GuestInstanceManager`：新建时自动挑选未被占用的 `twin-<n>` 名称并分配槽位，释放时先列出实例再二次确认，确认后释放并删除该槽系统目录。
