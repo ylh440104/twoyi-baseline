@@ -93,6 +93,11 @@ jobs:
           mkdir -p "$RUNNER_TEMP/hal-conn-tests"
           javac -d "$RUNNER_TEMP/hal-conn-tests" app/src/main/java/io/twoyi/HalConnectionRegistry.java tools/HalConnectionRegistryTest.java
           java -cp "$RUNNER_TEMP/hal-conn-tests" io.twoyi.HalConnectionRegistryTest
+      - name: Verify guest instance registry
+        run: |
+          mkdir -p "$RUNNER_TEMP/instance-registry-tests"
+          javac -d "$RUNNER_TEMP/instance-registry-tests" app/src/main/java/io/twoyi/GuestSlot.java app/src/main/java/io/twoyi/GuestInstanceRegistry.java tools/GuestInstanceRegistryTest.java
+          java -cp "$RUNNER_TEMP/instance-registry-tests" io.twoyi.GuestInstanceRegistryTest
       - name: Verify per-slot guest directory layout
         run: |
           mkdir -p "$RUNNER_TEMP/slot-layout-tests"

@@ -12,6 +12,10 @@
             android:selectable="false"
             android:title="@string/guest_instance_status_title" />
 
+        <Preference
+            android:key="guest_instances"
+            android:title="@string/guest_instances_title" />
+
         <EditTextPreference
             android:key="guest_instance_name"
             android:persistent="false"

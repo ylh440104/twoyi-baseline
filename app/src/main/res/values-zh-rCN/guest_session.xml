@@ -19,4 +19,7 @@
     <string name="guest_phase_failed">运行失败</string>
     <string name="guest_wipe_confirm_message">将清除两仪内部的所有数据，此操作不可恢复。</string>
     <string name="guest_wipe_complete">两仪内部数据已清除，请重新打开两仪以重新安装系统。</string>
+    <string name="guest_instances_empty">暂无来宾实例</string>
+    <string name="guest_instances_unreadable">无法读取实例列表：%1$s</string>
+    <string name="guest_instances_title">来宾实例</string>
 </resources>

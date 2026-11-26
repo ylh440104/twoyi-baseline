@@ -40,6 +40,7 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import io.twoyi.GuestInstanceRegistry;
 import io.twoyi.R;
 import io.twoyi.RomPreparation;
 import io.twoyi.TwoyiStatusManager;
@@ -123,6 +124,25 @@ public class SettingsActivity extends AppCompatActivity {
             super.onPause();
         }
 
+        private void refreshInstances() {
+            Preference instances = findPreference("guest_instances");
+            Context app = getActivity() == null ? null : getActivity().getApplicationContext();
+            if (app == null) return;
+            UIHelper.defer().when(() -> {
+                GuestInstanceRegistry registry = GuestInstanceRegistry.load(
+                        GuestInstanceRegistry.defaultPath(app.getDataDir().toPath()));
+                StringBuilder summary = new StringBuilder();
+                for (String id : registry.instances()) {
+                    if (summary.length() > 0) summary.append('\n');
+                    summary.append(id).append(" \u2192 slot ").append(registry.slotOf(id))
+                            .append(" (").append(registry.stateOf(id)).append(')');
+                }
+                return summary.length() == 0 ? app.getString(R.string.guest_instances_empty) : summary.toString();
+            }).done(instances::setSummary
+            ).fail(failure -> instances.setSummary(
+                    app.getString(R.string.guest_instances_unreadable, failure.getMessage())));
+        }
+
         @Override
         public void onViewCreated(View view, @Nullable Bundle savedInstanceState) {
             super.onViewCreated(view, savedInstanceState);
@@ -143,6 +163,13 @@ public class SettingsActivity extends AppCompatActivity {
                 guestName.setSummary(title);
                 return false; // Already saved, including normalization and default restoration.
             });
+
+            Preference guestInstances = findPreference("guest_instances");
+            guestInstances.setOnPreferenceClickListener(preference -> {
+                refreshInstances();
+                return true;
+            });
+            refreshInstances();
 
             Preference importApp = findPreference(R.string.settings_key_import_app);
             Preference export = findPreference(R.string.settings_key_manage_files);

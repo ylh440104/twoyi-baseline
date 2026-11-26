@@ -19,4 +19,7 @@
     <string name="guest_phase_failed">Failed</string>
     <string name="guest_wipe_confirm_message">Wiping all guest data… remove everything inside Twoyi. This cannot be undone.</string>
     <string name="guest_wipe_complete">All guest data was removed. Reopen Twoyi to install the system again.</string>
+    <string name="guest_instances_empty">No guest instances</string>
+    <string name="guest_instances_unreadable">Could not read the instance list: %1$s</string>
+    <string name="guest_instances_title">Guest instances</string>
 </resources>
