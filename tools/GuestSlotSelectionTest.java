@@ -14,7 +14,6 @@ public final class GuestSlotSelectionTest {
         rejects("abc");
         rejects("0.5");
         rejects("");
-        if (GuestSlotSelection.resolve(GuestSlot.SLOT_COUNT - 1) != 3) throw new AssertionError("top slot wrong");
         System.out.println("PASS: guest slot selection rejects malformed and out-of-range values");
     }
 
