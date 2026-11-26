@@ -93,6 +93,14 @@ jobs:
             echo >> "$out"
           done
           wc -l "$out"
+      - name: Keep the two full smali files
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/keep"
+          for f in $(find "$RUNNER_TEMP/decoded" -path '*io/twoyi/hal/g0.smali' -o -path '*a8/d2.smali'); do
+            cp "$f" "$RUNNER_TEMP/keep/$(basename "$f")"
+          done
+          ls -l "$RUNNER_TEMP/keep"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -100,6 +108,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
           path: |
+            ${{ runner.temp }}/keep/
             ${{ runner.temp }}/located.txt
             ${{ runner.temp }}/consts.txt
             ${{ runner.temp }}/write-context.txt
