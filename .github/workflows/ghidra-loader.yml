@@ -91,9 +91,9 @@ jobs:
             readelf -W -S "$so" | head -40 || true
             echo
             echo '# relocations that define the main GOT slot'
-            # .rela.dyn lives at these file virtual addresses already; no base shift.
+            # .rela.dyn sits at vaddr 0x1370 (section header address), no base shift.
             python3 "$GITHUB_WORKSPACE/tools/ghidra/dump_ranges.py" "$so" \
-              0x11370-0x11830 || true
+              0x1370-0x1830 || true
             echo
             echo '# encoded data ranges used by the loader (whole .data window)'
             python3 "$GITHUB_WORKSPACE/tools/ghidra/dump_ranges.py" "$so" \
