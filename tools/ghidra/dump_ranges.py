@@ -55,13 +55,33 @@ def load_segments(path):
 
 
 def read_vaddr(data, segments, address, size):
-    for start, end, offset, _ in segments:
-        if start <= address < end:
-            start_in_segment = address - start
-            available = end - address
-            take = min(size, available)
-            return data[offset + start_in_segment: offset + start_in_segment + take]
-    return b""
+    """Read a range that may span several PT_LOAD segments; gaps become zeros."""
+    out = bytearray()
+    cursor = address
+    end_address = address + size
+    while cursor < end_address:
+        matched = None
+        for seg_start, seg_end, seg_offset, _ in segments:
+            if seg_start <= cursor < seg_end:
+                matched = (seg_start, seg_end, seg_offset)
+                break
+        if matched is None:
+            # Skip to the next segment that starts after the cursor.
+            following = [s for s in segments if s[0] > cursor]
+            if not following:
+                out.extend(b"\x00" * (end_address - cursor))
+                break
+            next_start = min(s[0] for s in following)
+            gap = min(next_start, end_address) - cursor
+            out.extend(b"\x00" * gap)
+            cursor += gap
+            continue
+        seg_start, seg_end, seg_offset = matched
+        take = min(seg_end, end_address) - cursor
+        start_in_segment = cursor - seg_start
+        out.extend(data[seg_offset + start_in_segment: seg_offset + start_in_segment + take])
+        cursor += take
+    return bytes(out)
 
 
 def main(argv):
