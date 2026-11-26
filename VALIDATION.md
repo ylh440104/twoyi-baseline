@@ -116,6 +116,14 @@
 
 - ARM64 生命周期用例现通过正式安装器依次导入单 APK、同签名的 base 与 feature 分包组合，并检查损坏 APK 的失败清理。Actions 生成两份 API 27 测试 APK 并核对签名和打包后的哈希。实际分包安装待 ARM64 设备执行。
 
+## Socket 名不可按槽改名（自我纠正）
+
+- 前几轮我把控制 socket 改成 `TWOYI_SOCK1..3` 以避免抽象名冲突。这是个设计错误：该名字编译在随包 ROM 的 loader 里，改名后来宾会连到不存在的监听，启动永远收不到完成通知，表现为启动超时。
+- 已改回：**所有槽共用 `TWOYI_SOCK` / `twoyi_hal`**，隔离只靠文件（rootfs、日志、输入设备）。代价是同一设备同一时刻只能有一个来宾在跑——这与当前单进程实现一致，也不比现状更差；真正的多实例必须先有 Binder 或改来宾侧。
+- 顺带修掉一个 API 陷阱：`GuestEndpoints.forSlot(slot, dir)` 的第二参是**槽目录**而非数据目录。之前传错会静默得到槽 0 的路径。现在槽 ≥1 要求目录形如 `<data>/slots/<n>`，否则直接抛错；用例覆盖传数据目录、传别的槽号、传 `slots/shared` 三种误用。
+- Actions 全部通过（十三项 PASS），运行 https://github.com/ylh440104/twoyi-baseline/actions/runs/45779051507 ，同批 APK 构建成功。
+- 影响记录：`docs/PARITY_STATUS.md` 已更新，把“socket 名按槽隔离”从设计目标改为明确的不可能项与前提说明。
+
 ## 新槽位目录缺陷
 
 - 发现并修复一个真实缺陷：ROM 事务开始时会在槽根目录写日志临时文件，而槽 1…3 的 `data/slots/<n>` 在首次安装前并不存在，`Files.createTempFile(parent, …)` 会直接 `NoSuchFileException`，即“给新实例装系统”必然失败。槽 0 因为是数据目录本身，一直没暴露这个问题。
