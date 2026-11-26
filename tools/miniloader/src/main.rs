@@ -4,17 +4,16 @@
 //! This is a diagnostic tool, not the runtime. It lets a developer inspect what
 //! the loader would do to a guest binary without any privileged operation.
 
-use std::process::ExitCode;
 
 use miniloader::{build_stack, elf::Elf, map::plan, stack::Auxv, stack::AT_PAGESZ};
 
-fn main() -> ExitCode {
+fn main() {
     let mut args = std::env::args().skip(1);
     let path = match args.next() {
         Some(value) => value,
         None => {
             eprintln!("usage: miniloader-plan <elf> [page-size]");
-            return ExitCode::from(2);
+            std::process::exit(2);
         }
     };
     let page_size: u64 = args
@@ -26,14 +25,14 @@ fn main() -> ExitCode {
         Ok(value) => value,
         Err(error) => {
             eprintln!("cannot read {path}: {error}");
-            return ExitCode::FAILURE;
+            std::process::exit(1);
         }
     };
     let image = match Elf::parse(&bytes) {
         Ok(value) => value,
         Err(error) => {
             eprintln!("cannot parse {path}: {error:?}");
-            return ExitCode::FAILURE;
+            std::process::exit(1);
         }
     };
     println!("entry: 0x{:x}", image.entry);
@@ -53,7 +52,7 @@ fn main() -> ExitCode {
         Ok(value) => value,
         Err(error) => {
             eprintln!("cannot plan mapping: {error:?}");
-            return ExitCode::FAILURE;
+            std::process::exit(1);
         }
     };
     println!(
@@ -84,8 +83,7 @@ fn main() -> ExitCode {
         Ok(stack) => println!("initial stack: {} bytes", stack.size),
         Err(error) => {
             eprintln!("cannot build initial stack: {error:?}");
-            return ExitCode::FAILURE;
+            std::process::exit(1);
         }
     }
-    ExitCode::SUCCESS
 }
