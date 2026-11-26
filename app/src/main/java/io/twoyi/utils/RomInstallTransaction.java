@@ -75,6 +75,27 @@ final class RomInstallTransaction {
         move(tmp, ready);
     }
 
+    /**
+     * Drop a transaction that never published a plan, without touching the live
+     * ROM. Used before wiping or re-creating a slot: a stale journal would
+     * otherwise make every later install fail with "refusing to overwrite".
+     *
+     * @return true when an incomplete transaction was discarded
+     */
+    static boolean abandon(Path parent) throws IOException {
+        RomInstallTransaction t = current(parent);
+        if (t == null) return false;
+        if (!absent(t.ready)) {
+            // A published plan is a committed install; recovery must handle it.
+            throw new IOException("Refusing to abandon a published ROM transaction");
+        }
+        requireAbsent(t.backup);
+        discardExtracted(t.next);
+        discardExtracted(t.work);
+        Files.delete(t.journal);
+        return true;
+    }
+
     /** False means an interrupted extraction was discarded; live never changed. */
     boolean recover() throws IOException {
         if (absent(ready)) {

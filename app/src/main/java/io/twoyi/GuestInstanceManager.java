@@ -55,8 +55,10 @@ public final class GuestInstanceManager {
         }
         java.util.List<String> removed = java.util.Collections.emptyList();
         if (wipeData) {
-            Path rootfs = GuestSlotLayout.baseDirectory(dataDir.toFile(), slot).toPath().resolve("rootfs");
-            removed = GuestDataWipe.wipe(dataDir, rootfs);
+            java.io.File base = GuestSlotLayout.baseDirectory(dataDir.toFile(), slot);
+            // A cancelled install leaves a journal that would block the next one.
+            io.twoyi.utils.RomManager.abandonIncompleteInstall(base);
+            removed = GuestDataWipe.wipe(dataDir, base.toPath().resolve("rootfs"));
         }
         registry.release(instanceId);
         registry.save();

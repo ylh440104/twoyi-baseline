@@ -75,6 +75,7 @@ public final class RomInstallTransactionTest {
             Files.delete(journal);
             check(RomInstallTransaction.current(cleanup) == null);
             check(Files.isDirectory(cleanup.resolve("rootfs")));
+            checkAbandonment(suite);
         } finally {
             Files.walkFileTree(suite, new SimpleFileVisitor<Path>() {
                 @Override public FileVisitResult visitFile(Path p, BasicFileAttributes attrs) throws IOException {
@@ -148,5 +149,35 @@ public final class RomInstallTransactionTest {
 
     private static void check(boolean condition) {
         if (!condition) throw new AssertionError();
+    }
+
+    /** A cancelled install must not block the next one. */
+    private static void checkAbandonment(Path suite) throws IOException {
+        Path slot = Files.createDirectory(suite.resolve("abandon"));
+        RomInstallTransaction first = RomInstallTransaction.begin(slot);
+        Files.createDirectory(first.extractionDirectory().resolve("rootfs"));
+        if (RomInstallTransaction.current(slot) == null) throw new AssertionError("journal missing");
+        if (!RomInstallTransaction.abandon(slot)) throw new AssertionError("nothing abandoned");
+        if (RomInstallTransaction.current(slot) != null) throw new AssertionError("journal survived abandon");
+        // The slot is usable again.
+        RomInstallTransaction again = RomInstallTransaction.begin(slot);
+        if (again == null) throw new AssertionError("slot unusable after abandon");
+        RomInstallTransaction.abandon(slot);
+        if (RomInstallTransaction.abandon(slot)) throw new AssertionError("abandon reported work when idle");
+
+        // A published plan must not be silently thrown away.
+        Path committed = Files.createDirectory(suite.resolve("abandon-published"));
+        RomInstallTransaction planned = RomInstallTransaction.begin(committed);
+        Path staged = Files.createDirectory(planned.extractionDirectory().resolve("rootfs"));
+        Files.createDirectory(staged.resolve("system"));
+        Files.createFile(staged.resolve("init"));
+        planned.prepare();
+        try {
+            RomInstallTransaction.abandon(committed);
+            throw new AssertionError("published transaction was abandoned");
+        } catch (IOException expected) {
+        }
+        planned.recover();
+        planned.finish();
     }
 }

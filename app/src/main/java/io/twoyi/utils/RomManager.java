@@ -296,6 +296,10 @@ public final class RomManager {
         // none yet, so create it first instead of failing with ENOENT.
         File base = io.twoyi.GuestSlotLayout.ensureBaseDirectory(
                 context.getApplicationContext().getDataDir(), slot);
+        // Settle any previous transaction for this slot first: a crashed install
+        // leaves a journal that would otherwise block every later install.
+        RomInstallTransaction previous = RomInstallTransaction.current(base.toPath());
+        if (previous != null) previous.recover();
         RomInstallTransaction t = RomInstallTransaction.begin(base.toPath());
         Path work = t.extractionDirectory();
         Path archive = work.resolve("input.7z");
@@ -317,6 +321,14 @@ public final class RomManager {
         ensureGuestDevices(work.resolve("rootfs"));
         t.prepare();
         t.recover();
+    }
+
+    /**
+     * Drop an incomplete install transaction for a slot directory. Refuses a
+     * published plan, which recovery must finish instead.
+     */
+    public static boolean abandonIncompleteInstall(File slotBase) throws IOException {
+        return RomInstallTransaction.abandon(slotBase.toPath());
     }
 
     public static void reboot(Context context) {
