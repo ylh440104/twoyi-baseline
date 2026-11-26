@@ -139,6 +139,13 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 转向最新版 UI 栈（Compose + Material 3）
+
+- 按用户要求，不再以 0.5.4 界面为目标。构建体系已加入 Kotlin 1.6.10 + Compose 编译器 1.1.1 + Compose 1.1.1 + Material3 1.0.0-alpha11，云端 `assembleDebug` 通过（run 45808288015）。
+- 新增 `ui/twin/TwinActivity`：Material3 外壳，顶部标题 + 双页（Twin / Phone）+ 底部 `NavigationBar`，内容先用文案卡片占位；字符串取自最新版同名键（`twin_tab_*`、`twin_boot_*`、`twin_phone_empty_*`），中文为自行翻译。可从设置页「打开新界面（预览）」进入。
+- 已知限制：`material3:1.0.0-alpha11` 没有 `TopAppBar`，当前用标题文本代替，升级到稳定版后替换；外壳尚未接管来宾控制，仍走原 Java 路径。
+- 未做的事（需要用户决定）：最新版 ROM（`rootfs.tar.zst`）来源；以及“完全照搬”与“不复制对方美术/代码资源”的边界。
+
 ## 启动闪退诊断（真机反馈）
 
 - 用户安装 `baseline-11260913` 后反馈启动即闪退。没有堆栈时任何猜测都不可靠，因此新增 `CrashDiary`：`attachBaseContext` 的第一条语句就装默认未捕获异常处理器，把时间、设备、线程和完整堆栈写入 `filesDir/last-crash.txt` 与外部私有目录同名文件，自检对话框也会附上最近一次崩溃。
