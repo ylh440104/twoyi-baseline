@@ -116,6 +116,14 @@
 
 - ARM64 生命周期用例现通过正式安装器依次导入单 APK、同签名的 base 与 feature 分包组合，并检查损坏 APK 的失败清理。Actions 生成两份 API 27 测试 APK 并核对签名和打包后的哈希。实际分包安装待 ARM64 设备执行。
 
+## 实例启动闸门
+
+- `GuestInstanceGate` 把“注册表说这个实例占哪个槽”和“该槽确实有可启动的 ROM”两件事合并判断：未注册实例返回 `UNKNOWN_INSTANCE`，注册了但槽里没有 `init` + `system` 返回 `NO_ROM`，两者都不会放行到 `init`。
+- 实例被释放后立即回到 `UNKNOWN_INSTANCE`，不会因为槽目录还存在而被误判可启动。
+- 用例覆盖：未知实例、空槽、槽 0（数据目录）、槽 1（`data/slots/1`）、`init` 是目录、释放后失效、参数非法。
+- Actions 全部通过（十项 PASS），含 `PASS: start gate requires a registered instance with a bootable slot`，运行 https://github.com/ylh440104/twoyi-baseline/actions/runs/45764213556 ，同批 APK 构建成功。
+- 仍未实现：按槽安装 ROM 的入口（现在只装到当前进程的槽）、把来宾跑在 `:guestN` 进程里、设备侧多实例并存验收。
+
 ## 多进程槽位骨架
 
 - 清单新增 `GuestInstanceService$Slot0..Slot3`，分别声明在 `:guest0`…`:guest3`；与最新版一致的四进程结构。当前全部 `android:enabled="false"`，因为来宾启动路径尚未按槽分发，提前启用会在没有 Surface 的进程里启动第二个渲染器。
