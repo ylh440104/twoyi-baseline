@@ -48,9 +48,9 @@ fn synth_elf(entry: u64, segments: &[(u64, u64, u64, u64, u32)]) -> Vec<u8> {
 
 #[test]
 fn parses_a_single_executable_segment() {
-    let bytes = synth_elf(0x1000, &[(0x100, 0x0, 0x200, 0x400, PT_F_R | PT_F_X)]);
+    let bytes = synth_elf(0x100, &[(0x100, 0x0, 0x200, 0x400, PT_F_R | PT_F_X)]);
     let image = Elf::parse(&bytes).expect("parse");
-    assert_eq!(image.entry, 0x1000);
+    assert_eq!(image.entry, 0x100);
     assert_eq!(image.segments.len(), 1);
     let segment = image.segments[0];
     assert_eq!(segment.filesz, 0x200);
@@ -127,9 +127,9 @@ fn plans_page_aligned_mappings_with_bss() {
         },
     ];
     let planned = plan(&segments, 0x1000, PAGE).expect("plan");
-    assert_eq!(planned.reserve_start, 0x0);
+    assert_eq!(planned.reserve_start, 0x1000);
     assert_eq!(planned.reserve_end, 0x4000);
-    assert_eq!(planned.reserved_len(), 0x4000);
+    assert_eq!(planned.reserved_len(), 0x3000);
     assert_eq!(planned.maps.len(), 2);
     assert_eq!(planned.maps[0].start, 0x1000);
     assert_eq!(planned.maps[0].end, 0x2000);
