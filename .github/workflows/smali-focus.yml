@@ -1,0 +1,106 @@
+name: Smali focus on the skipped camera methods
+
+# jadx skipped two methods (`io/twoyi/hal/g0.g` and `a8/d2.C`) because it could not
+# rebuild them as Java. Those are exactly the camera opcode dispatchers, so the
+# constants are still unknown (`docs/STAGE1_STATUS.md` gap list). apktool keeps
+# the raw smali, where every opcode literal is visible.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/smali-focus.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  smali:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Download and verify the APK
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/twoyi.apk" \
+            https://dl.twoyi.ai/twoyi_0.7.5-11131322.apk
+          echo "86ed3afaa447104f131d906c42ed8a07e207959c7869fda54bd245f62db14f4e  $RUNNER_TEMP/twoyi.apk" \
+            | sha256sum --check
+      - name: Fetch apktool
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 -o "$RUNNER_TEMP/apktool.jar" \
+            https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar
+          ls -l "$RUNNER_TEMP/apktool.jar"
+      - name: Decode smali only
+        run: |
+          set -euo pipefail
+          java -jar "$RUNNER_TEMP/apktool.jar" d -f --no-res \
+            -o "$RUNNER_TEMP/decoded" "$RUNNER_TEMP/twoyi.apk" \
+            > "$RUNNER_TEMP/apktool.log" 2>&1 || echo "apktool exited $?"
+          tail -5 "$RUNNER_TEMP/apktool.log" || true
+          ls "$RUNNER_TEMP/decoded" | head
+          find "$RUNNER_TEMP/decoded" -name '*.smali' | wc -l
+      - name: Locate the skipped classes
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/located.txt"
+          {
+            echo '# g0.smali'
+            find "$RUNNER_TEMP/decoded" -path '*io/twoyi/hal/g0.smali' -o -path '*a8/d2.smali' \
+              | sed "s|$RUNNER_TEMP/decoded/||" || true
+            echo
+            echo '# line counts'
+            for f in $(find "$RUNNER_TEMP/decoded" -path '*io/twoyi/hal/g0.smali' -o -path '*a8/d2.smali'); do
+              echo "$(wc -l < "$f") $f"
+            done || true
+          } > "$out"
+          cat "$out"
+      - name: Extract every literal constant with its method
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/consts.txt"
+          : > "$out"
+          for f in $(find "$RUNNER_TEMP/decoded" -path '*io/twoyi/hal/g0.smali' -o -path '*a8/d2.smali'); do
+            echo "## $f" >> "$out"
+            awk '
+              /^\.method/ { method=$0 }
+              /const\/(4|16|high16)|const / && /0x/ {
+                line=$0
+                gsub(/^[ \t]+/, "", line)
+                print method " || " line
+              }
+            ' "$f" >> "$out" || true
+            echo >> "$out"
+          done
+          wc -l "$out"
+          head -60 "$out"
+      - name: Extract the constants near write calls
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/write-context.txt"
+          : > "$out"
+          for f in $(find "$RUNNER_TEMP/decoded" -path '*io/twoyi/hal/g0.smali' -o -path '*a8/d2.smali'); do
+            echo "## $f" >> "$out"
+            grep -n -B4 -A2 -E 'write|putInt|invoke-virtual .*write' "$f" | head -400 >> "$out" || true
+            echo >> "$out"
+          done
+          wc -l "$out"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smali-focus
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/located.txt
+            ${{ runner.temp }}/consts.txt
+            ${{ runner.temp }}/write-context.txt
+            ${{ runner.temp }}/apktool.log
