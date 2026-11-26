@@ -15,7 +15,7 @@ import io.twoyi.utils.GuestMaintenance;
 import io.twoyi.utils.RomManager;
 
 /** One preparation task per host process, independent of Activity lifetime. */
-final class RomPreparation {
+public final class RomPreparation {
     private static CompletableFuture<Void> preparation;
     private static volatile boolean extracting;
 
