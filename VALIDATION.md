@@ -116,6 +116,13 @@
 
 - ARM64 生命周期用例现通过正式安装器依次导入单 APK、同签名的 base 与 feature 分包组合，并检查损坏 APK 的失败清理。Actions 生成两份 API 27 测试 APK 并核对签名和打包后的哈希。实际分包安装待 ARM64 设备执行。
 
+## 硬件桥接证据
+
+- 从 0.5.4 配套 ROM 的 HAL 字符串确认：audio/lights/vibrator/sensors/gps 均连接抽象 socket `twoyi_hal`，camera 走独立 `twoyi_camera_transport`，hwcomposer 走渲染器共享内存。详见 docs/HAL_BRIDGE.md。
+- 只有字符串，缺少帧头长度、版本字段取值与结构体布局，因此**不绑定** `twoyi_hal`，旧 ROM 保持自带降级路径（例如传感器返回 0 个）。
+- `HalConnectionRegistry` 记录每模块一次连接与最终结果，上限 16 条；Actions 输出 `PASS: HAL connections are tracked once, bounded and finalized`（运行 https://github.com/ylh440104/twoyi-baseline/actions/runs/45748261762 ）。
+- HAL 端到端桥接仍未实现，未验收。需要来宾内抓 `twoyi_hal` 首包字节后才能继续。
+
 ## 清除全部数据
 
 - 设置新增“清除所有数据”，先在确认对话框中确认，再在后台线程检查来宾未运行且未在解包 ROM，然后只删除来宾数据目录下的 `rootfs`。
