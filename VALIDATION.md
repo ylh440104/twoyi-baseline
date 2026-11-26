@@ -125,6 +125,13 @@
 - Actions 全部通过（十四项 PASS），运行 https://github.com/ylh440104/twoyi-baseline/actions/runs/45787896768 ，同批 APK 构建成功。
 - 未验收：真实解包被中断（杀进程/断电）后的恢复效果。
 
+## 新版本产物下载核对
+
+- 发布 https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260913 ：应用 APK 与测试 APK 均为该次云端构建产物（run 45789376869，development commit 059f1dbd）。
+- 从发布地址重新下载应用 APK 后本地核对：211592821 字节，SHA-256 `cb5b31ed4dfc56fa6257c13138411278fe3ceacbd9542703d5ee1570096cc023`，与打包报告一致；测试 APK `30ecdb6654d15b860dc91c7266b45f972376a7caaaf6d530a901fc7d9fa13f8f`。
+- 该版本相较 `baseline-11260131` 新增：实例创建/按槽装系统/切换/释放、设置页显示磁盘就绪状态、设备自检入口。
+- 仍是 debug 构建，**设备行为未验收**（设备任务因缺专用 ARM64 runner 一直 skipped）。
+
 ## 自检覆盖端点与随包 ROM
 
 - 自检新增三类检查：槽 0 端点全部位于数据目录内且日志/输入路径互不相同、控制 socket 仍是 ROM 内编译的名字、随包 `rootfs.7z` 的 7z 头（`37 7A BC AF 27 1C`）与 `rom.ini` 能解析出有效版本。
