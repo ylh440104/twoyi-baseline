@@ -75,8 +75,12 @@ jobs:
           java -cp "$RUNNER_TEMP/apk-budget" io.twoyi.utils.ApkCopyBudgetTest
 
   boot-state:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
     env:
       # Every slot-dependent regression compiles this same set, so a new
       # dependency shows up once instead of per step.
@@ -99,6 +103,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Report runner architecture
+        run: |
+          uname -m
+          echo "runner=${{ matrix.os }}"
       - name: Test actual boot state class with Android API stubs
         run: python3 tools/test_boot_state.py
       - name: Verify ROM preflight rejects incomplete or oversized archives
@@ -190,8 +198,12 @@ jobs:
           java -cp "$RUNNER_TEMP/wipe-tests" io.twoyi.utils.GuestDataWipeTest
 
   input-stream:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
         with:
