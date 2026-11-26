@@ -116,6 +116,15 @@
 
 - ARM64 生命周期用例现通过正式安装器依次导入单 APK、同签名的 base 与 feature 分包组合，并检查损坏 APK 的失败清理。Actions 生成两份 API 27 测试 APK 并核对签名和打包后的哈希。实际分包安装待 ARM64 设备执行。
 
+## 多进程槽位骨架
+
+- 清单新增 `GuestInstanceService$Slot0..Slot3`，分别声明在 `:guest0`…`:guest3`；与最新版一致的四进程结构。当前全部 `android:enabled="false"`，因为来宾启动路径尚未按槽分发，提前启用会在没有 Surface 的进程里启动第二个渲染器。
+- 槽位取自具体服务类名而非清单值：清单值对整个应用是同一个，无法按进程区分。`GuestSlotSelection.fromServiceClass` 只接受规范的 `$Slot0..$Slot3`，`Slot00`、`Slot4`、`Slot-1`、无后缀一律拒绝。
+- `GuestProcessProfile.initializeForSlot` 让进程绑定到明确槽位，与“从清单读默认值”的路径共存。
+- 云端曾两次打回：`foregroundServiceType="specialUse"` 需要 compileSdk 34（本树为 31），已移除，待 SDK 升级时再加；另一处仍是某个用例的 `javac` 少了 slot 依赖。后者改为用 `SLOT_SOURCES` 环境变量共享同一份编译集合，同类问题只会在一个地方出现。
+- Actions 全部通过（九项 PASS），运行 https://github.com/ylh440104/twoyi-baseline/actions/runs/45762768217 ，同批 APK 构建成功。
+- 仍未实现：把来宾真正跑在 `:guestN` 进程里（渲染器、init、控制服务都需按进程重建）、按槽安装 ROM、设备侧多实例并存验收。
+
 ## 实例注册表
 
 - `GuestInstanceRegistry` 决定哪个实例占用哪个槽、哪个是活动实例、进展到哪一步（`RESERVED` / `READY` / `RUNNING`）。它不存来宾数据，也不启动进程，只负责防止两个实例拿到同一个槽。
