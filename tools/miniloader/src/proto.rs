@@ -261,7 +261,7 @@ impl Tbd1Reply {
         out[8..12].copy_from_slice(&self.role.to_le_bytes());
         out[12..16].copy_from_slice(&self.status.to_le_bytes());
         out[16..20].copy_from_slice(&self.flags.to_le_bytes());
-        out[24..32].copy_from_slice(&self.size.to_le_bytes());
+        // `size` never travels on the wire: the loader fstats the fd it received.
         out
     }
 
@@ -288,7 +288,7 @@ impl Tbd1Reply {
         }
         let status = read_u32(bytes, 12);
         let flags = read_u32(bytes, 16);
-        for (index, offset) in [20usize, 24].iter().enumerate() {
+        for (index, offset) in [20usize, 24, 28].iter().enumerate() {
             let value = read_u32(bytes, *offset);
             if value != 0 {
                 return Err(ProtoError::ReservedNotZero {
@@ -297,20 +297,13 @@ impl Tbd1Reply {
                 });
             }
         }
-        let size = if bytes.len() >= 32 {
-            u64::from_le_bytes([
-                bytes[24], bytes[25], bytes[26], bytes[27], bytes[28], bytes[29], bytes[30],
-                bytes[31],
-            ])
-        } else {
-            0
-        };
         Ok(Tbd1Reply {
             sequence: read_u16(bytes, 6),
             role: read_u32(bytes, 8),
             status,
             flags,
-            size,
+            // Filled in by the caller from fstat on the attached fd.
+            size: 0,
         })
     }
 }

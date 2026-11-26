@@ -184,9 +184,11 @@ fn tbd1_reply_carries_status_size_and_echoes() {
     assert_eq!(u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]), 0);
     assert_eq!(u32::from_le_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]), 1);
 
-    let decoded = Tbd1Reply::decode(&bytes).expect("decode");
+    let mut decoded = Tbd1Reply::decode(&bytes).expect("decode");
+    // The size is not part of the frame; the loader fstats the fd instead.
+    assert_eq!(decoded.size, 0);
+    decoded.size = reply.size;
     assert_eq!(decoded, reply);
-    assert_eq!(decoded.size, 0x1_0000);
 
     // An error reply keeps the same envelope but a non-zero status.
     let mut failed = reply.clone();
