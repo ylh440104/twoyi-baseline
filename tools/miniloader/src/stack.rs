@@ -71,16 +71,14 @@ enum Pointer {
 }
 
 impl StackImage {
-    pub fn len(&self) -> usize {
-        self.size
+    pub fn is_empty(&self) -> bool {
+        self.size == 0
     }
 
     /// Write absolute addresses for every pointer slot, given the image's base.
     pub fn apply_base(&mut self, base: u64) -> Result<(), StackError> {
         for (slot, pointer) in self.pointers.clone() {
-            let offset = match pointer {
-                Pointer::String(offset) => offset,
-            };
+            let Pointer::String(offset) = pointer;
             let address = base
                 .checked_add(offset as u64)
                 .ok_or(StackError::ArithmeticOverflow)?;
@@ -143,9 +141,11 @@ pub fn build(
 
     let mut bytes = Vec::with_capacity(size);
     let mut pointers: Vec<(usize, Pointer)> = Vec::new();
-    let mut layout = Layout::default();
 
-    layout.argc_offset = 0;
+    let mut layout = Layout {
+        argc_offset: 0,
+        ..Layout::default()
+    };
     push_u64(&mut bytes, argv.len() as u64);
 
     layout.argv_offset = bytes.len();

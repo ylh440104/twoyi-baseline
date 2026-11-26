@@ -28,8 +28,12 @@ pub struct Map {
 }
 
 impl Map {
-    pub fn len(&self) -> u64 {
+    pub fn byte_len(&self) -> u64 {
         self.end - self.start
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.end == self.start
     }
 }
 
