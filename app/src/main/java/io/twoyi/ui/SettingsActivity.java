@@ -45,6 +45,7 @@ import java.util.List;
 import io.twoyi.GuestInstanceGate;
 import io.twoyi.GuestInstanceInstaller;
 import io.twoyi.GuestInstanceManager;
+import io.twoyi.GuestSlotLayout;
 import io.twoyi.GuestInstanceRegistry;
 import io.twoyi.R;
 import io.twoyi.RomPreparation;
@@ -139,8 +140,13 @@ public class SettingsActivity extends AppCompatActivity {
                 StringBuilder summary = new StringBuilder();
                 for (String id : registry.instances()) {
                     if (summary.length() > 0) summary.append('\n');
-                    summary.append(id).append(" \u2192 slot ").append(registry.slotOf(id))
-                            .append(" (").append(registry.stateOf(id)).append(')');
+                    int slot = registry.slotOf(id);
+                    if (id.equals(registry.active())) summary.append("* ");
+                    summary.append(id).append(" \u2192 slot ").append(slot);
+                    // Registry state can lag behind the disk; the disk decides.
+                    summary.append(GuestSlotLayout.isReady(app.getDataDir(), slot)
+                            ? app.getString(R.string.guest_instance_has_rom)
+                            : app.getString(R.string.guest_instance_needs_rom));
                 }
                 return summary.length() == 0 ? app.getString(R.string.guest_instances_empty) : summary.toString();
             }).done(instances::setSummary

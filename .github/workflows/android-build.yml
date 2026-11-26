@@ -236,7 +236,7 @@ jobs:
           timeout 240 adb install "${app[0]}"
           tests_installed=true
           timeout 90 adb install "${tests[0]}"
-          for suite_and_count in ControlSocketTest:1 GuestNameTest:1 GuestApkAbiTest:1 InstallerReadinessTest:1 RomInstallationTest:1 DocumentProjectionTest:3 DiagnosticSharingTest:1 WindowRecreationTest:1; do
+          for suite_and_count in ControlSocketTest:1 GuestNameTest:1 GuestApkAbiTest:1 InstanceLifecycleTest:1 InstallerReadinessTest:1 RomInstallationTest:1 DocumentProjectionTest:3 DiagnosticSharingTest:1 WindowRecreationTest:1; do
             suite="io.twoyi.${suite_and_count%:*}"
             expected="${suite_and_count##*:}"
             report="$suite.txt"

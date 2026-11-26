@@ -36,4 +36,6 @@
     <string name="guest_instance_activate">Switch guest instance</string>
     <string name="guest_instance_activate_summary">Activate an instance; the app restarts on its slot</string>
     <string name="guest_instance_activated">Activated %1$s on slot %2$d, restarting…</string>
+    <string name="guest_instance_has_rom"> · system ready</string>
+    <string name="guest_instance_needs_rom"> · no system</string>
 </resources>
