@@ -45,6 +45,7 @@ import java.util.List;
 import io.twoyi.GuestInstanceGate;
 import io.twoyi.GuestInstanceInstaller;
 import io.twoyi.GuestInstanceManager;
+import io.twoyi.GuestSelfCheck;
 import io.twoyi.GuestSlotLayout;
 import io.twoyi.GuestInstanceRegistry;
 import io.twoyi.R;
@@ -160,6 +161,27 @@ public class SettingsActivity extends AppCompatActivity {
                 if (!registry.instances().contains(candidate)) return candidate;
             }
             throw new IllegalStateException("No free instance name");
+        }
+
+        private void runSelfCheck() {
+            Activity activity = getActivity();
+            if (activity == null) return;
+            Context app = activity.getApplicationContext();
+            Toast.makeText(app, R.string.guest_self_check_running, Toast.LENGTH_SHORT).show();
+            UIHelper.defer().when(() -> GuestSelfCheck.run(app,
+                    android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL)
+            ).done(report -> {
+                if (getActivity() != activity) return;
+                new AlertDialog.Builder(activity)
+                        .setTitle(R.string.guest_self_check)
+                        .setMessage(report)
+                        .setPositiveButton(android.R.string.ok, null)
+                        .show();
+            }).fail(failure -> {
+                if (getActivity() != activity) return;
+                Toast.makeText(app, app.getString(R.string.install_failed_reason, failure.getMessage()),
+                        Toast.LENGTH_LONG).show();
+            });
         }
 
         private void chooseInstanceToActivate() {
@@ -362,6 +384,13 @@ public class SettingsActivity extends AppCompatActivity {
             if (createPreference != null) {
                 createPreference.setOnPreferenceClickListener(preference -> {
                     createInstance();
+                    return true;
+                });
+            }
+            Preference selfCheckPreference = findPreference("guest_self_check");
+            if (selfCheckPreference != null) {
+                selfCheckPreference.setOnPreferenceClickListener(preference -> {
+                    runSelfCheck();
                     return true;
                 });
             }

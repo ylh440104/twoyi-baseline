@@ -38,4 +38,7 @@
     <string name="guest_instance_activated">已切换到实例 %1$s（槽位 %2$d），正在重启…</string>
     <string name="guest_instance_has_rom"> · 系统已就绪</string>
     <string name="guest_instance_needs_rom"> · 未安装系统</string>
+    <string name="guest_self_check">运行基座自检</string>
+    <string name="guest_self_check_summary">在本机验证容器基座的不变量并显示结果</string>
+    <string name="guest_self_check_running">正在运行自检…</string>
 </resources>

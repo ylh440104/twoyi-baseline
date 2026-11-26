@@ -38,4 +38,7 @@
     <string name="guest_instance_activated">Activated %1$s on slot %2$d, restarting…</string>
     <string name="guest_instance_has_rom"> · system ready</string>
     <string name="guest_instance_needs_rom"> · no system</string>
+    <string name="guest_self_check">Run base self check</string>
+    <string name="guest_self_check_summary">Runs the container checks against this device and shows the result</string>
+    <string name="guest_self_check_running">Running self check…</string>
 </resources>
