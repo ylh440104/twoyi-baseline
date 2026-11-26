@@ -107,7 +107,7 @@ public class Render2Activity extends Activity implements View.OnTouchListener {
             float ydpi = displayMetrics.ydpi;
 
             try {
-                GuestEndpoints paths = GuestEndpoints.forDataDir(getDataDir());
+                GuestEndpoints paths = GuestProcessProfile.endpoints(getDataDir());
                 Renderer.init(surface, RomManager.getLoaderPath(getApplicationContext()),
                         paths.getRootfsDir(), paths.getLogFile(), paths.getTouchSocketPath(),
                         paths.getKeySocketPath(), xdpi, ydpi, (int) getBestFps());

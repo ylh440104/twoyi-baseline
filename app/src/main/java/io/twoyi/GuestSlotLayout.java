@@ -43,6 +43,17 @@ public final class GuestSlotLayout {
                 && new File(rootfs, "system").isDirectory();
     }
 
+    /** Endpoints for a slot named by the process payload; absent means slot 0. */
+    public static GuestEndpoints endpoints(String slotArgument, File dataDir) {
+        int slot = GuestSlotSelection.resolve(slotArgument);
+        return GuestEndpoints.forSlot(slot, baseDirectory(dataDir, slot));
+    }
+
+    /** Slot directory for the payload, validated the same way as endpoints. */
+    public static File baseDirectory(String slotArgument, File dataDir) {
+        return baseDirectory(dataDir, GuestSlotSelection.resolve(slotArgument));
+    }
+
     public static void requireReady(File dataDir, int slot) {
         if (!isReady(dataDir, slot)) {
             throw new IllegalStateException("Guest slot " + slot

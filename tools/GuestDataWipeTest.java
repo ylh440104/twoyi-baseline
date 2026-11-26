@@ -37,6 +37,17 @@ public final class GuestDataWipeTest {
             rejects(() -> GuestDataWipe.wipe(data, base.resolve("ghost")));
             rejects(() -> GuestDataWipe.wipe(data, data));
             rejects(() -> GuestDataWipe.wipe(null, rootfs));
+
+            // A slot tree lives one level deeper and must still be removable.
+            Path slot = data.resolve("slots").resolve("1");
+            Files.createDirectories(slot.resolve("rootfs/system"));
+            Files.writeString(slot.resolve("rootfs/init"), "x");
+            List<String> slotRemoved = GuestDataWipe.wipe(data, slot.resolve("rootfs"));
+            if (!slotRemoved.equals(List.of("rootfs")) || Files.exists(slot.resolve("rootfs"))) {
+                throw new AssertionError("nested slot rootfs was not removed: " + slotRemoved);
+            }
+            if (!Files.exists(slot)) throw new AssertionError("slot directory itself was removed");
+            rejects(() -> GuestDataWipe.wipe(data, data.resolve("slots")));
             System.out.println("PASS: wipe stays inside the data directory and removes only guest roots");
         } finally {
             delete(base);

@@ -32,11 +32,16 @@ public final class GuestDataWipe {
             if (root == null || !root.isAbsolute()) {
                 throw new IOException("Refusing a relative guest path: " + root);
             }
-            Path parent = root.getParent();
-            if (parent == null || !parent.toRealPath().equals(canonicalData)) {
+            // Slots may live in a subdirectory, so containment rather than one
+            // specific parent is the correct guard. The resolved path must stay
+            // strictly inside the data directory and never be the data directory.
+            if (!exists(root)) continue;
+            Path resolvedRoot = root.toRealPath();
+            Path parentReal = resolvedRoot.getParent();
+            if (parentReal == null || !parentReal.startsWith(canonicalData)
+                    || resolvedRoot.equals(canonicalData)) {
                 throw new IOException("Refusing a guest path outside the data directory: " + root);
             }
-            if (!exists(root)) continue;
             deleteTree(root);
             if (exists(root)) throw new IOException("Guest path survived deletion: " + root);
             removed.add(root.getFileName().toString());

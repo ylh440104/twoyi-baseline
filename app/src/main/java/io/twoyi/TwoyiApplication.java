@@ -43,10 +43,14 @@ public class TwoyiApplication extends Application {
 
         RomManager.ensureBootFiles(base);
 
+        // Resolve the served slot once so every consumer agrees on paths and
+        // socket names. A malformed payload throws here, before any listener binds.
+        GuestProcessProfile.initialize(base);
+
         // Bind the control listener under the slot's own abstract name before
         // anything can start the guest. Slot 0 keeps the legacy name.
         TwoyiSocketServer server = TwoyiSocketServer.getInstance(base);
-        server.configureControlSocketName(GuestEndpoints.forDataDir(base.getDataDir()).getControlSocketName());
+        server.configureControlSocketName(GuestProcessProfile.endpoints(base.getDataDir()).getControlSocketName());
         TwoyiMessenger.getInstance().configureControlSocketName(server.getControlSocketName());
         server.start();
     }

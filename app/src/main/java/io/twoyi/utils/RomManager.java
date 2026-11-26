@@ -136,15 +136,21 @@ public final class RomManager {
 
     public static void ensureBootFiles(Context context) {
         // attachBaseContext runs before recovery. Do not create anything in rootfs here.
-        ensureDir(new File(context.getDataDir(), "socket"));
+        File base = getSlotBaseDir(context);
+        ensureDir(new File(base, "socket"));
 
         createLoaderSymlink(context);
 
         saveLastKmsg(context);
     }
 
+    /** Directory owning this slot's rootfs, log and sockets; slot 0 is the data dir. */
+    public static File getSlotBaseDir(Context context) {
+        return io.twoyi.GuestProcessProfile.slotDirectory(context);
+    }
+
     private static void createLoaderSymlink(Context context) {
-        Path loaderSymlink = new File(context.getDataDir(), "loader64").toPath();
+        Path loaderSymlink = new File(getSlotBaseDir(context), "loader64").toPath();
         String loaderPath = getLoaderPath(context);
         try {
             Files.deleteIfExists(loaderSymlink);
@@ -258,18 +264,18 @@ public final class RomManager {
     }
 
     public static boolean recoverInstall(Context context) throws IOException {
-        RomInstallTransaction t = RomInstallTransaction.current(context.getDataDir().toPath());
+        RomInstallTransaction t = RomInstallTransaction.current(getSlotBaseDir(context).toPath());
         return t != null && t.recover();
     }
 
     public static void finishInstall(Context context) throws IOException {
-        RomInstallTransaction t = RomInstallTransaction.current(context.getDataDir().toPath());
+        RomInstallTransaction t = RomInstallTransaction.current(getSlotBaseDir(context).toPath());
         if (t == null) throw new IOException("Missing ROM install journal");
         t.finish();
     }
 
     public static void installRootfs(Context context, boolean thirdParty) throws IOException {
-        RomInstallTransaction t = RomInstallTransaction.begin(context.getDataDir().toPath());
+        RomInstallTransaction t = RomInstallTransaction.begin(getSlotBaseDir(context).toPath());
         Path work = t.extractionDirectory();
         Path archive = work.resolve("input.7z");
         if (thirdParty) {
@@ -282,7 +288,7 @@ public final class RomManager {
             }
         }
         RomArchiveBudget budget = RomArchivePreflight.inspect(archive);
-        budget.checkAvailable(context.getDataDir().getUsableSpace());
+        budget.checkAvailable(getSlotBaseDir(context).getUsableSpace());
         int code = P7ZipApi.executeCommand(String.format(Locale.US, "7z x -mmt=%d -aoa '%s' '-o%s'",
                 Runtime.getRuntime().availableProcessors(), archive, work));
         if (code != 0) throw new IOException("ROM extraction failed: " + code);
@@ -339,7 +345,7 @@ public final class RomManager {
     }
 
     public static File getRootfsDir(Context context) {
-        return new File(context.getDataDir(), "rootfs");
+        return new File(getSlotBaseDir(context), "rootfs");
     }
 
     public static File getRomSdcardDir(Context context) {

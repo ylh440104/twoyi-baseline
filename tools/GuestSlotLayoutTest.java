@@ -54,9 +54,34 @@ public final class GuestSlotLayoutTest {
             if (third.getEndpoints().getControlSocketName().equals(legacy.getEndpoints().getControlSocketName())) {
                 throw new AssertionError("slots share a control socket name");
             }
+            // The payload-driven overloads must agree with the explicit slot path.
+            if (!GuestSlotLayout.baseDirectory(null, data).equals(data)
+                    || !GuestSlotLayout.baseDirectory(" 0 ", data).equals(data)) {
+                throw new AssertionError("payload slot 0 not on the data dir");
+            }
+            File slot3 = GuestSlotLayout.baseDirectory("3", data);
+            if (!slot3.equals(GuestSlotLayout.baseDirectory(data, 3))) {
+                throw new AssertionError("payload slot 3 path mismatch");
+            }
+            GuestEndpoints fromPayload = GuestSlotLayout.endpoints("3", data);
+            GuestEndpoints explicit = GuestEndpoints.forSlot(3, slot3);
+            if (!fromPayload.equals(explicit)) throw new AssertionError("payload endpoints mismatch");
+            if (!fromPayload.getRootfsDir().equals(new File(slot3, "rootfs").getAbsolutePath())) {
+                throw new AssertionError("payload rootfs not under the slot dir");
+            }
+            rejectsPayload(data, "");
+            rejectsPayload(data, "abc");
             System.out.println("PASS: slot layout keeps slot 0 legacy and requires a complete ROM per slot");
         } finally {
             deleteTree(base);
+        }
+    }
+
+    private static void rejectsPayload(File data, String argument) {
+        try {
+            GuestSlotLayout.baseDirectory(argument, data);
+            throw new AssertionError("invalid slot payload accepted: " + argument);
+        } catch (IllegalArgumentException expected) {
         }
     }
 

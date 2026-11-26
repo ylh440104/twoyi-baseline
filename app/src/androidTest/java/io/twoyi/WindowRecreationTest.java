@@ -172,7 +172,7 @@ public class WindowRecreationTest {
             int initPid = Renderer.guestInitPid();
             assertTrue("Missing tracked guest init", initPid > 0);
             scenario.onActivity(activity -> {
-                GuestEndpoints paths = GuestEndpoints.forDataDir(activity.getDataDir());
+                GuestEndpoints paths = GuestProcessProfile.endpoints(activity.getDataDir());
                 try {
                     Renderer.init(first.getHolder().getSurface(),
                             io.twoyi.utils.RomManager.getLoaderPath(activity),

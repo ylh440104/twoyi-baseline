@@ -279,8 +279,8 @@ public class SettingsActivity extends AppCompatActivity {
                 if (TwoyiStatusManager.getInstance().isStarted() || RomPreparation.isExtracting()) {
                     throw new IllegalStateException(app.getString(R.string.guest_maintenance_busy));
                 }
-                java.io.File dataDir = app.getDataDir();
-                return GuestDataWipe.wipe(dataDir.toPath(), dataDir.toPath().resolve("rootfs"));
+                java.io.File slotBase = io.twoyi.utils.RomManager.getSlotBaseDir(app);
+                return GuestDataWipe.wipe(app.getDataDir().toPath(), slotBase.toPath().resolve("rootfs"));
             }).done(removed -> {
                 preference.setEnabled(true);
                 activity.runOnUiThread(() -> {

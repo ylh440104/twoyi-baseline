@@ -22,6 +22,9 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/Theme.Twoyi" >
+        <meta-data
+            android:name="io.twoyi.GUEST_SLOT"
+            android:value="0" />
 
         <service android:name=".GuestSessionService" android:exported="false" />
 

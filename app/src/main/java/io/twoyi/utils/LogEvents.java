@@ -74,11 +74,11 @@ public class LogEvents {
     }
 
     public static File getKmsgFile(Context context) {
-        return new File(context.getDataDir(), "log.txt");
+        return new File(RomManager.getSlotBaseDir(context), "log.txt");
     }
 
     public static File getLastKmsgFile(Context context) {
-        return new File(context.getDataDir(), "last_kmsg.txt");
+        return new File(RomManager.getSlotBaseDir(context), "last_kmsg.txt");
     }
 
     private static class ReportItem {
