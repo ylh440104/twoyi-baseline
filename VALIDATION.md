@@ -139,6 +139,19 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段二第八轮：resolver 信封（新增 5 项，合计 24 项）
+
+- 新增 `tools/miniloader/src/resolver.rs`：把 `docs/HAL_PROTOCOL.md` §5 里 Java 层的硬事实落成代码——
+  请求**定长 360**、应答**严格 988**（`nativeResolve` 返回值长度不等于 988 就抛 `Invalid resolver response`）、
+  一问一答一连接。`serve_once` 在写之前就校验长度，`request_once` 要求读满 988。
+- 新增 `tests/resolver.rs` 5 项：全量会话、短请求报 `ShortRequest{got:100}` 而非作答、987 与 989 字节应答都被拒、
+  长度常量 360/988 钉死。
+- CI 运行 45913642626 全绿：handshake 5 + plan 8 + proto 6 + resolver 5 = **24 项**。
+- 同时新增 `docs/STAGE1_STATUS.md`：把阶段一每一项按**实证 / 推断 / 空缺**三档列出，并给出各自证据来源。
+  结论一句话：loader 的**请求**侧是指令流级实证，**应答**侧是推断；`libtwoyi.so` 的 Java 层实证、native 层空缺。
+- 另加 `.github/workflows/guest-capture.yml`（只在专用设备 runner 上跑）：装好即可用于把推断变事实，
+  目前无设备，所以它是**未运行**的工具而非证据。
+
 ## 阶段二第七轮：`B1F2` 应答被过度简化（本轮纠错，无新代码）
 
 - 复核 `FUN_00116520` 的调用序列时发现，我之前把应答读成「魔数/版本/tag/序号/status/flags/保留」，
