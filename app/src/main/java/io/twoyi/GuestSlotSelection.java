@@ -14,10 +14,16 @@ public final class GuestSlotSelection {
     private GuestSlotSelection() {}
 
     public static int resolve(String slotArgument) {
-        if (slotArgument == null || slotArgument.isEmpty()) return 0;
+        // A missing extra means slot 0. An empty extra is a malformed payload and
+        // must fail loudly instead of silently colliding with slot 0.
+        if (slotArgument == null) return 0;
+        String value = slotArgument.trim();
+        if (value.isEmpty()) {
+            throw new IllegalArgumentException("Guest slot argument is blank");
+        }
         int slot;
         try {
-            slot = Integer.parseInt(slotArgument.trim());
+            slot = Integer.parseInt(value);
         } catch (NumberFormatException e) {
             throw new IllegalArgumentException("Guest slot is not a number: " + slotArgument, e);
         }
