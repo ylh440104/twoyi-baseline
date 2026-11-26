@@ -139,6 +139,13 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段二第四轮：应答包络（21 项单测全绿）+ 一次自我纠错
+
+- `Tbd1Reply` 加到 `proto.rs`：32 字节包络（magic/版本/序号/role/status/flags/3 保留字），`status==0 && flags==1` 视为成功；broker 现在回的是完整包络而不是裸 u32。
+- **纠错**：上一轮我把"应答里带 fd 大小"当结论写进文档。复查伪 C 的栈帧偏移后确认——Ghidra 把请求头（`0x15f4/0x15f8/0x15fa/0x15fc`）与收发缓冲（`&local_d70` 0xC78、`&local_1600` 0x888）混在同一帧，**无法据此断定 0x888 是应答长度、0x47 是 EPROTO、fd 随应答传入**。已把该节降级为「推测，未证实」，代码里 `size` 不再上线路由（真实实现是对收到的 fd 做 `fstat`）。
+- CI 运行 45841412028 全绿：`handshake 5 passed`、`plan 8 passed`、`proto 8 passed`（含新增 `tbd1_reply_carries_status_size_and_echoes`、`tbd1_reply_rejects_bad_envelopes`），合计 **21 项**。
+- 期间被云端拦下一次真实 bug：我把 `size` 编码到 offset 24，而该位置在协议里是保留字，broker 回包被自己的解码器判为 `ReservedNotZero`。
+
 ## 阶段二第三轮：通道两端跑通（19 项单测全绿）
 
 - 新增 `tools/miniloader/src/broker.rs`：`HandshakeClient`（attach → exec）与 `Broker`（应答握手、校验并回执 `TBD1`）两端，传输泛型 `Read+Write`，将来换成官方 `socketpair`+`SCM_RIGHTS` 无需改协议层。
