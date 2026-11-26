@@ -116,6 +116,14 @@
 
 - ARM64 生命周期用例现通过正式安装器依次导入单 APK、同签名的 base 与 feature 分包组合，并检查损坏 APK 的失败清理。Actions 生成两份 API 27 测试 APK 并核对签名和打包后的哈希。实际分包安装待 ARM64 设备执行。
 
+## 新槽位目录缺陷
+
+- 发现并修复一个真实缺陷：ROM 事务开始时会在槽根目录写日志临时文件，而槽 1…3 的 `data/slots/<n>` 在首次安装前并不存在，`Files.createTempFile(parent, …)` 会直接 `NoSuchFileException`，即“给新实例装系统”必然失败。槽 0 因为是数据目录本身，一直没暴露这个问题。
+- 修复方式：`GuestSlotLayout.ensureBaseDirectory(dataDir, slot)` 创建并复核槽根目录（幂等，槽 0 直接返回数据目录），`RomManager.installRootfsInto` 改为先按槽号准备目录再开事务；安装入口也统一成按槽号调用，不再传目录，避免调用方传错目录。
+- 回归新增：新槽创建成功、槽 0 不移动、重复调用幂等、槽位置被普通文件占用时拒绝而不是覆盖。
+- Actions 全部通过（十三项 PASS），运行 https://github.com/ylh440104/twoyi-baseline/actions/runs/45775675640 ，同批 APK 构建成功。
+- 该修复本身仍待真机验证（真实解包会用到这条路径）。
+
 ## 实例列表现状与设备用例
 
 - 设置页的实例列表同时显示磁盘真实就绪情况（`GuestSlotLayout.isReady`）而不只显示注册表里的状态，并用 `*` 标出活动实例：注册表状态可能滞后于磁盘，用户需要看到“到底装没装系统”。
