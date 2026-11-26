@@ -1,0 +1,15 @@
+[package]
+name = "miniloader"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.60"
+license = "MPL-2.0"
+description = "Pure logic core of a minimal guest ELF loader (stage two)"
+
+[lib]
+name = "miniloader"
+path = "src/lib.rs"
+
+[[bin]]
+name = "miniloader-plan"
+path = "src/main.rs"
