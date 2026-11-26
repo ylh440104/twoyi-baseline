@@ -32,18 +32,22 @@ public final class GuestEndpointsTest {
         }
         // Every slot keeps the ROM's compiled-in socket names; only files differ.
         for (int slot = 1; slot < 4; slot++) {
-            GuestEndpoints guarded = GuestEndpoints.forSlot(slot, new File("/data/data/io.twoyi"));
+            File slotBase = new File("/data/data/io.twoyi/slots/" + slot);
+            GuestEndpoints guarded = GuestEndpoints.forSlot(slot, slotBase);
             if (!guarded.getControlSocketName().equals(slot0.getControlSocketName())
                     || !guarded.getHalSocketName().equals(slot0.getHalSocketName())) {
                 throw new AssertionError("slot " + slot + " renamed the ROM's socket");
             }
-            File slotBase = new File("/data/data/io.twoyi/slots/" + slot);
             if (!guarded.getRootfsDir().equals(new File(slotBase, "rootfs").getAbsolutePath())) {
                 throw new AssertionError("slot " + slot + " rootfs not isolated");
             }
             if (guarded.equals(slot0)) {
                 throw new AssertionError("slot " + slot + " shares files with slot 0");
             }
+            // The app data directory is not a slot base for slot >= 1.
+            int index = slot;
+            rejects(() -> GuestEndpoints.forSlot(index, new File("/data/data/io.twoyi")));
+            rejects(() -> GuestEndpoints.forSlot(index, new File("/data/data/io.twoyi/slots/9")));
         }
         rejects(() -> GuestEndpoints.forSlot(-1, new File("/data/data/io.twoyi")));
         rejects(() -> GuestEndpoints.forSlot(4, new File("/data/data/io.twoyi")));

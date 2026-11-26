@@ -63,17 +63,29 @@ public final class GuestEndpoints {
      * files (rootfs, log, input devices) and is enforced by the start gate, not
      * by renaming sockets.
      */
-    public static GuestEndpoints forSlot(int slot, File dataDir) {
-        Objects.requireNonNull(dataDir, "dataDir");
+    public static GuestEndpoints forSlot(int slot, File slotBase) {
+        Objects.requireNonNull(slotBase, "slotBase");
         if (slot < 0 || slot >= io.twoyi.GuestSlot.SLOT_COUNT) {
             throw new IllegalArgumentException("Guest slot must be between 0 and "
                     + (io.twoyi.GuestSlot.SLOT_COUNT - 1));
         }
-        File rootfs = new File(dataDir, "rootfs");
+        // The argument is the slot's own directory, not the app data directory.
+        // Passing the data dir for slot 1 would silently produce slot-0 paths, so
+        // require the documented layout for every extra slot.
+        if (slot > 0) {
+            File parent = slotBase.getParentFile();
+            if (!slotBase.getName().equals(Integer.toString(slot))
+                    || parent == null
+                    || !parent.getName().equals(io.twoyi.GuestSlotLayout.SLOT_DIRECTORY)) {
+                throw new IllegalArgumentException("Slot " + slot
+                        + " base must be <data>/slots/" + slot + ", got " + slotBase);
+            }
+        }
+        File rootfs = new File(slotBase, "rootfs");
         File inputDir = new File(new File(rootfs, "dev"), "input");
         return new GuestEndpoints(
                 rootfs.getAbsolutePath(),
-                new File(dataDir, "log.txt").getAbsolutePath(),
+                new File(slotBase, "log.txt").getAbsolutePath(),
                 new File(inputDir, "touch").getAbsolutePath(),
                 new File(inputDir, "key0").getAbsolutePath(),
                 DEFAULT_CONTROL_SOCKET,
