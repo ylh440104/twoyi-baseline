@@ -63,6 +63,35 @@
 也就是说：`__libc_init(..., PTR_FUN_00129d90, ...)` 的第三参确实是 **main 槽**，`entry → main = FUN_00105f20(argc, argv)` 成立，不再是推测。
 另外可见 GOT 里直接存放了 `TYLOADER=`、`TWOYI_ROOTFS=` 等字符串的地址，说明这些环境项是由 **main 直接拼装** 的（配合 `LOADER_DECODE.md` 的解码结论）。
 
+
+## 6. 「seccomp 端点」到底是什么（本轮修正）
+
+对两个 `.so` 做了完整的导入符号核查后，结论需要修正：
+
+| 事实 | 证据 |
+|---|---|
+| `libloader.so` **没有** `connect/bind/listen/accept/prctl/ioctl` 导入 | 伪 C 里这些符号引用数为 0；只有 `sendmsg/recvmsg/fcntl/readlink` |
+| `libloader.so` 唯一的 `socketpair` 用于 `B1F2` 握手 | 伪 C 行 4774 |
+| `libtwoyi.so` **没有** `seccomp` 导入，也没有任何 `seccomp` 字符串 | 导入表只有 `prctl/ioctl/socketpair/sendmsg/recvmsg`；`strings` 里 seccomp 命中数为 0 |
+| `libtwoyi.so` 只有 `prctl(0x26,1)`（`PR_SET_NO_NEW_PRIVS`）与 `prctl(4,1)`（`PR_SET_DUMPABLE`） | 过滤反编译结果行 51366 / 49359 |
+
+也就是说：**没有任何一方安装 seccomp 过滤器**。结合 loader 里的致命错误串
+`required host libc bridge symbols are unavailable`，更自洽的解释是：
+
+> 这不是内核 seccomp，而是 **libc 符号桥（libc bridge）**：loader 把来宾
+> `/system/bin/init` 的 libc 依赖重定向到宿主提供的实现，经 `B1F2` 建立的控制通道
+> 请求服务；`TWOYI_SECCOMP_ENDPOINT` 只是这条通道在环境里的名字（用于让来宾的
+> libc 初始化路径认为自己运行在受限环境），`PR_SET_NO_NEW_PRIVS` 由宿主侧面设置。
+
+这条修正影响自研路线：**我们不需要实现 seccomp user-notify**，而是要实现一个
+「宿主 libc 服务端 + loader 侧的导入重定向」。工作量比 seccomp 方案小，且完全在用户态。
+
+## 7. 宿主侧反编译流水线（新增）
+
+`ghidra-tinyi.yml` 用 `DECOMP_FILTER` 只反编译引用了 `prctl/socketpair/recvmsg/sendmsg/ioctl/JNI_OnLoad`
+的函数：1.34 分钟级排队后约 20 分钟完成，产出 2.5 MB 伪 C、12,489 个函数头，其中
+`JNI_OnLoad @ 0x2c5310 size=94920`。这份产物用于继续定位 `@twoyi_hal` 服务端与 gfxstream transport。
+
 ## 5. 仍未定
 
 1. `local_15fa`/`local_15f8` 的比较对象来源（应为握手应答里的两个字段，需在 `FUN_00116520` 的调用链上确认）。
