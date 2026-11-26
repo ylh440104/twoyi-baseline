@@ -78,6 +78,25 @@ jobs:
             grep -n 'getenv' "$src" | head -40 || true
           } > "$out"
           head -200 "$out"
+      - name: Dump GOT and encoded data ranges
+        run: |
+          set -euo pipefail
+          so="$RUNNER_TEMP/libs/libloader.so"
+          out="$RUNNER_TEMP/loader-bytes.txt"
+          {
+            echo '# .got.plt (which slot holds main)'
+            readelf -W -x .got.plt "$so" || true
+            echo
+            echo '# section headers'
+            readelf -W -S "$so" | head -40 || true
+            echo
+            echo '# encoded data ranges used by the loader'
+            python3 "$GITHUB_WORKSPACE/tools/ghidra/dump_ranges.py" "$so" \
+              --ghidra-base=0x100000 \
+              0x12e0d0-0x12e1a0 0x12e340-0x12e420 0x12e590-0x12e700 \
+              0x12e900-0x12ed00 0x12ef00-0x12f100 || true
+          } > "$out"
+          head -80 "$out"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -87,4 +106,5 @@ jobs:
           path: |
             ${{ runner.temp }}/loader-decompiled.txt
             ${{ runner.temp }}/loader-focus.txt
+            ${{ runner.temp }}/loader-bytes.txt
             ${{ runner.temp }}/ghidra.log

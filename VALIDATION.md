@@ -139,6 +139,18 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段一/二 首轮：loader 契约、HAL 线格式、gfxstream、ROM 打包器
+
+三个子任务并行完成，结论分别归档：
+
+- `docs/LOADER_RE.md`（576 行）：`libloader.so` 262 个函数逐个看。`.init_array` 只有 1 项 `_INIT_0 @ 0x11f208`，做的是**自建私有导入表**（GOT→`0x12fa40..0x12fc50`），这解释了为何 `fork`/`clone` 找不到 xref。37KB 的 `FUN_00107598` **不是 ELF 解析器**，是顶层编排（解析 auxv → dlopen/dlsym → getenv 分支 → ELF 装载 → 搭来宾初始栈 → 擦 environ → 间接跳转）；真正的 ELF 机件是 `0x113a70`/`0x114330`/`0x1141b4`/**`0x114560` 段映射**。握手两级：`0x116520` 的 32 字节 `B1F2` 报文 + SCM_RIGHTS 传 fd；`0x116df4` 的 3192 字节 `TBD1` 报文。
+- `docs/HAL_PROTOCOL.md`（415 行）：`@twoyi_hal` 是**同一监听 + 首包 4 字节小端 int32 类型**，除 camera 与响应外无长度前缀/校验和；sensors 列表 156 字节/条、事件 28 字节；camera 帧头 24 字节 `W,H,'NV21',fpsMin,fpsMax,frameBytes`，wire 上无 stride/时间戳/fd；camera 在 0.7.5 已并入 `@twoyi_hal` type 5/6（`twoyi_camera_transport` 是 0.5.4 的叫法）。
+- `docs/GFXSTREAM.md`：gfxstream（AOSP 13 vulkan-cereal）与来宾侧 renderControl 解码器**都静态编在 libtwoyi.so**；缓冲走 ColorBuffer + AHardwareBuffer；宿主启动幂等并有 host callback table。
+- `docs/ROMPACK.md` + `tools/rompack/`（1559 行）：自写 USTAR 写入器 + zstd skippable BOM 帧，`pack/unpack/verify`。
+  CI 证据（run 45823660954 全绿）：`[ok] container.single_zstd_frame`、`[ok] container.zstd_checksum`、`可复现性：两次 pack 输出逐字节一致（3146577 字节）`，sha256 `e080d489e55d071244b6f8575585537eff57cd20e14bc4a8532301edd368ae58`。
+
+未解已逐条写进各文档；下一轮补 `.got.plt` 与编码数据段 hex（新增 `tools/ghidra/dump_ranges.py`，已接入 `ghidra-loader.yml`）。
+
 ## 最新版逻辑复原（全量反编译）
 
 - 云端全量 jadx（run 45813416528）：`io.twoyi` 155 类、顶层 309 包、4705 个 java 文件；产物为 3 天期 artifact（2.6 MB），未入库。
