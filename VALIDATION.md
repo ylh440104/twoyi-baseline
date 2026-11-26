@@ -116,6 +116,12 @@
 
 - ARM64 生命周期用例现通过正式安装器依次导入单 APK、同签名的 base 与 feature 分包组合，并检查损坏 APK 的失败清理。Actions 生成两份 API 27 测试 APK 并核对签名和打包后的哈希。实际分包安装待 ARM64 设备执行。
 
+## 清除全部数据
+
+- 设置新增“清除所有数据”，先在确认对话框中确认，再在后台线程检查来宾未运行且未在解包 ROM，然后只删除来宾数据目录下的 `rootfs`。
+- `GuestDataWipe` 拒绝任何不是数据目录直接子项的路径，不跟随符号链接，删除后复核目录确实不存在；`tools/GuestDataWipeTest` 在 Actions host 回归中通过（`PASS: wipe stays inside the data directory and removes only guest roots`，运行 https://github.com/ylh440104/twoyi-baseline/actions/runs/45745581035 ）。
+- 该版本仍未做数据目录整体重建与多实例场景下的按槽清除；设备侧确认对话框和重启行为待 ARM64 验收。
+
 ## 共享文件操作
 
 - `65feed9` 通过 Android 文件提供程序创建、写入、重命名并删除共享文件，检查重命名后内容完整且旧路径已消失。托管模拟器和专用 ARM64 设备任务都要求通过全部三项文档测试。
