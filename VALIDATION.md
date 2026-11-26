@@ -125,6 +125,13 @@
 - Actions 全部通过（十四项 PASS），运行 https://github.com/ylh440104/twoyi-baseline/actions/runs/45787896768 ，同批 APK 构建成功。
 - 未验收：真实解包被中断（杀进程/断电）后的恢复效果。
 
+## 启动闪退诊断（真机反馈）
+
+- 用户安装 `baseline-11260913` 后反馈启动即闪退。没有堆栈时任何猜测都不可靠，因此新增 `CrashDiary`：`attachBaseContext` 的第一条语句就装默认未捕获异常处理器，把时间、设备、线程和完整堆栈写入 `filesDir/last-crash.txt` 与外部私有目录同名文件，自检对话框也会附上最近一次崩溃。
+- 同时消除一个可能直接致命的启动路径：槽位解析或控制 socket 配置抛异常时，现在记录并回落到槽 0，而不是让进程死掉。
+- 新增 `baseline-11260940`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260940 ，应用 APK 211594701 字节，SHA-256 `325b36545e48cd793f75010da6c4c4667f7a6008cf4efb0d161fbc2669fd6c2f`（与打包报告一致）。
+- 该结论尚未闭环：仍需真机重装后取回 `last-crash.txt` 才能确定根因。
+
 ## 新版本产物下载核对
 
 - 发布 https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260913 ：应用 APK 与测试 APK 均为该次云端构建产物（run 45789376869，development commit 059f1dbd）。
