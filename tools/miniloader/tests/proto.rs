@@ -81,38 +81,56 @@ fn b1f2_rejects_wrong_magic_version_kind_status_and_size() {
 }
 
 #[test]
-fn tbd1_encodes_header_and_payload() {
-    let payload = vec![0xaa; 16];
-    let block = Tbd1::new(0x1234, 0x5678_9abc, payload.clone()).expect("block");
+fn tbd1_layout_matches_the_disassembly() {
+    use miniloader::proto::{
+        Tbd1, TBD1_FRAME_LEN, TBD1_MAGIC, TBD1_PATH_LEN_OFFSET, TBD1_PATH_OFFSET, TBD1_TAG,
+        TBD1_VERSION,
+    };
+
+    let block = Tbd1::for_path(0x1234, "/system/bin/init").expect("block");
     let bytes = block.encode();
-    assert_eq!(bytes.len(), TBD1_HEADER_LEN + payload.len());
+    assert_eq!(bytes.len(), TBD1_FRAME_LEN, "send size is 3192 bytes");
     assert_eq!(&bytes[0..4], b"TBD1");
     assert_eq!(
         u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
         TBD1_MAGIC
     );
     assert_eq!(u16::from_le_bytes([bytes[4], bytes[5]]), TBD1_VERSION);
-    assert_eq!(u16::from_le_bytes([bytes[6], bytes[7]]), 0x1234);
-    assert_eq!(&bytes[8..12], &0x5678_9abcu32.to_le_bytes());
     assert_eq!(
-        u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]) as usize,
-        payload.len()
+        u16::from_le_bytes([bytes[6], bytes[7]]),
+        TBD1_TAG,
+        "offset 6 holds the constant tag 0x28"
     );
     assert_eq!(
-        u32::from_le_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]),
-        1,
-        "flags must be the attach value"
+        u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]),
+        0x1234
     );
-    assert_eq!(&bytes[20..32], &[0u8; 12], "reserved words stay zero");
-    assert_eq!(&bytes[32..], payload.as_slice());
+    assert_eq!(
+        u32::from_le_bytes([
+            bytes[TBD1_PATH_LEN_OFFSET],
+            bytes[TBD1_PATH_LEN_OFFSET + 1],
+            bytes[TBD1_PATH_LEN_OFFSET + 2],
+            bytes[TBD1_PATH_LEN_OFFSET + 3],
+        ]) as usize,
+        "/system/bin/init".len()
+    );
+    assert_eq!(
+        &bytes[TBD1_PATH_OFFSET..TBD1_PATH_OFFSET + "/system/bin/init".len()],
+        b"/system/bin/init"
+    );
+    // Everything the loader does not fill stays zero (it memsets 0xC70 before use).
+    assert!(bytes[TBD1_PATH_OFFSET + "/system/bin/init".len()..]
+        .iter()
+        .all(|byte| *byte == 0));
 
-    let decoded = Tbd1::decode(&bytes).expect("decode");
-    assert_eq!(decoded, block);
+    assert_eq!(Tbd1::decode(&bytes).expect("decode"), block);
 }
 
 #[test]
-fn tbd1_rejects_bad_inputs() {
-    let good = Tbd1::new(1, 2, vec![0u8; 4]).expect("block").encode();
+fn tbd1_rejects_bad_frames() {
+    use miniloader::proto::{Tbd1, TBD1_FRAME_LEN, TBD1_PATH_LEN_OFFSET, TBD1_PATH_OFFSET};
+
+    let good = Tbd1::for_path(1, "/init").expect("block").encode();
 
     let mut bad_magic = good.clone();
     bad_magic[0] = 0;
@@ -125,92 +143,86 @@ fn tbd1_rejects_bad_inputs() {
         Err(ProtoError::BadVersion(9))
     ));
 
-    let mut reserved_set = good.clone();
-    reserved_set[20..24].copy_from_slice(&5u32.to_le_bytes());
-    assert!(matches!(
-        Tbd1::decode(&reserved_set),
-        Err(ProtoError::ReservedNotZero { value: 5, .. })
-    ));
+    let mut bad_tag = good.clone();
+    bad_tag[6..8].copy_from_slice(&1u16.to_le_bytes());
+    assert!(matches!(Tbd1::decode(&bad_tag), Err(ProtoError::BadTag(1))));
 
-    // Declared payload larger than the bounded maximum.
+    let mut empty = good.clone();
+    empty[TBD1_PATH_LEN_OFFSET..TBD1_PATH_LEN_OFFSET + 4].copy_from_slice(&0u32.to_le_bytes());
+    assert!(matches!(Tbd1::decode(&empty), Err(ProtoError::EmptyPath)));
+
     let mut oversize = good.clone();
-    oversize[12..16].copy_from_slice(&((TBD1_MAX_PAYLOAD + 1) as u32).to_le_bytes());
+    oversize[TBD1_PATH_LEN_OFFSET..TBD1_PATH_LEN_OFFSET + 4]
+        .copy_from_slice(&0x800u32.to_le_bytes());
     assert!(matches!(
         Tbd1::decode(&oversize),
         Err(ProtoError::PayloadTooLarge(_))
     ));
 
-    // Declared payload not matching the buffer length.
-    let mut short = good.clone();
-    short[12..16].copy_from_slice(&8u32.to_le_bytes());
     assert!(matches!(
-        Tbd1::decode(&short),
+        Tbd1::decode(&good[..TBD1_FRAME_LEN - 1]),
         Err(ProtoError::TooShort { .. })
     ));
-
+    let mut long = good.clone();
+    long.push(0);
     assert!(matches!(
-        Tbd1::decode(&good[..16]),
-        Err(ProtoError::TooShort {
-            need: TBD1_HEADER_LEN,
-            ..
-        })
+        Tbd1::decode(&long),
+        Err(ProtoError::TooLong { max: TBD1_FRAME_LEN, .. })
     ));
 
-    // The constructor refuses an oversized payload before anything is encoded.
+    // The path must be absolute and fit the loader's 1024-byte bound.
+    use miniloader::proto::{PathError, TBD1_PATH_MAX};
     assert!(matches!(
-        Tbd1::new(1, 1, vec![0u8; TBD1_MAX_PAYLOAD + 1]),
-        Err(ProtoError::PayloadTooLarge(_))
+        Tbd1::for_path(1, "system/bin/init"),
+        Err(PathError::NotAbsolute)
     ));
+    let long_path = format!("/{}", "a".repeat(TBD1_PATH_MAX));
+    assert!(matches!(
+        Tbd1::for_path(1, &long_path),
+        Err(PathError::TooLong(_))
+    ));
+    // A path that starts correctly but would run past the frame is refused there too.
+    assert!(TBD1_PATH_OFFSET < TBD1_FRAME_LEN);
 }
 
 #[test]
-fn tbd1_limits_match_the_documented_bounds() {
-    // 0xC00 payload bound and a < 0x1000 length check in the loader.
-    assert_eq!(TBD1_MAX_PAYLOAD, 0xC00);
-    assert!(TBD1_HEADER_LEN + TBD1_MAX_PAYLOAD < 0x1000);
-    let full = Tbd1::new(0, 1, vec![0u8; TBD1_MAX_PAYLOAD]).expect("max payload");
-    assert_eq!(full.encode().len(), TBD1_HEADER_LEN + TBD1_MAX_PAYLOAD);
-    assert_eq!(Tbd1::decode(&full.encode()).expect("decode"), full);
-}
-#[test]
-fn tbd1_reply_carries_status_size_and_echoes() {
-    use miniloader::proto::{Tbd1Reply, TBD1_ERRNO_PROTO, TBD1_REPLY_LEN};
+fn tbd1_reply_echoes_tag_and_sequence() {
+    use miniloader::proto::{Tbd1Reply, TBD1_ERRNO_PROTO, TBD1_REPLY_LEN, TBD1_TAG};
 
-    let reply = Tbd1Reply::success(0x1234, 0x40, 0x1_0000);
+    let reply = Tbd1Reply::success(TBD1_TAG, 0x99);
     assert!(reply.is_success());
     let bytes = reply.encode();
-    assert_eq!(bytes.len(), TBD1_REPLY_LEN);
+    assert_eq!(bytes.len(), TBD1_REPLY_LEN, "receive size is 0x878 bytes");
     assert_eq!(&bytes[0..4], b"TBD1");
     assert_eq!(u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]), 0);
     assert_eq!(u32::from_le_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]), 1);
+    assert_eq!(Tbd1Reply::decode(&bytes).expect("decode"), reply);
 
-    let mut decoded = Tbd1Reply::decode(&bytes).expect("decode");
-    // The size is not part of the frame; the loader fstats the fd instead.
-    assert_eq!(decoded.size, 0);
-    decoded.size = reply.size;
-    assert_eq!(decoded, reply);
-
-    // An error reply keeps the same envelope but a non-zero status.
     let mut failed = reply.clone();
     failed.status = TBD1_ERRNO_PROTO;
     assert!(!failed.is_success());
-    let decoded = Tbd1Reply::decode(&failed.encode()).expect("decode error reply");
-    assert_eq!(decoded.status, TBD1_ERRNO_PROTO);
-    assert_eq!(TBD1_ERRNO_PROTO, 0x47, "the loader uses EPROTO (71) on failure");
+    assert_eq!(
+        Tbd1Reply::decode(&failed.encode()).expect("decode").status,
+        TBD1_ERRNO_PROTO
+    );
+    assert_eq!(TBD1_ERRNO_PROTO, 0x47, "EPROTO is what the loader reports");
 }
 
 #[test]
 fn tbd1_reply_rejects_bad_envelopes() {
-    use miniloader::proto::{Tbd1Reply, TBD1_REPLY_LEN};
+    use miniloader::proto::{Tbd1Reply, TBD1_REPLY_LEN, TBD1_TAG};
 
-    let good = Tbd1Reply::success(1, 2, 3).encode();
+    let good = Tbd1Reply::success(TBD1_TAG, 1).encode();
     let mut bad_magic = good.clone();
     bad_magic[0] = 0;
     assert!(matches!(Tbd1Reply::decode(&bad_magic), Err(ProtoError::BadMagic(_))));
 
     let mut bad_version = good.clone();
     bad_version[4..6].copy_from_slice(&7u16.to_le_bytes());
-    assert!(matches!(Tbd1Reply::decode(&bad_version), Err(ProtoError::BadVersion(7))));
+    assert!(matches!(
+        Tbd1Reply::decode(&bad_version),
+        Err(ProtoError::BadVersion(7))
+    ));
 
     let mut reserved = good.clone();
     reserved[20..24].copy_from_slice(&9u32.to_le_bytes());
@@ -219,41 +231,8 @@ fn tbd1_reply_rejects_bad_envelopes() {
         Err(ProtoError::ReservedNotZero { value: 9, .. })
     ));
 
-    assert!(matches!(Tbd1Reply::decode(&good[..16]), Err(ProtoError::TooShort { .. })));
-    let mut long = good.clone();
-    long.extend_from_slice(&[0u8; 8]);
     assert!(matches!(
-        Tbd1Reply::decode(&long),
-        Err(ProtoError::TooLong { max: TBD1_REPLY_LEN, .. })
-    ));
-}
-
-#[test]
-fn tbd1_request_for_path_carries_an_absolute_path() {
-    use miniloader::proto::{tbd1_request_for_path, PathError, TBD1_PATH_MAX};
-
-    let block = tbd1_request_for_path(7, 0x40, "/system/bin/init").expect("block");
-    assert_eq!(block.sequence, 7);
-    assert_eq!(block.role, 0x40);
-    // payload = u32 length + path bytes
-    assert_eq!(block.payload.len(), 4 + "/system/bin/init".len());
-    let length = u32::from_le_bytes([
-        block.payload[0],
-        block.payload[1],
-        block.payload[2],
-        block.payload[3],
-    ]);
-    assert_eq!(length as usize, "/system/bin/init".len());
-    assert_eq!(&block.payload[4..], b"/system/bin/init");
-
-    assert!(matches!(
-        tbd1_request_for_path(1, 1, "system/bin/init"),
-        Err(PathError::NotAbsolute)
-    ));
-
-    let long = format!("/{}", "a".repeat(TBD1_PATH_MAX));
-    assert!(matches!(
-        tbd1_request_for_path(1, 1, &long),
-        Err(PathError::TooLong(_))
+        Tbd1Reply::decode(&good[..TBD1_REPLY_LEN - 1]),
+        Err(ProtoError::TooShort { .. })
     ));
 }

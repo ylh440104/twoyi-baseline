@@ -9,8 +9,8 @@
 use std::io::{Read, Write};
 
 use crate::proto::{
-    ProtoError, Tbd1, Tbd1Reply, B1F2, B1F2_LEN, TBD1_HEADER_LEN, TBD1_MAX_LEN,
-    TBD1_REPLY_LEN,
+    ProtoError, Tbd1, Tbd1Reply, B1F2, B1F2_LEN, TBD1_FRAME_LEN, TBD1_PATH_LEN_OFFSET,
+    TBD1_REPLY_LEN, TBD1_TAG,
 };
 
 #[derive(Debug)]
@@ -108,7 +108,7 @@ impl<S: Read + Write> HandshakeClient<S> {
         let frame = block.encode();
         self.stream.write_all(&frame)?;
         self.stream.flush()?;
-        let mut ack = [0u8; TBD1_REPLY_LEN];
+        let mut ack = vec![0u8; TBD1_REPLY_LEN];
         read_exact(&mut self.stream, &mut ack)?;
         let reply = Tbd1Reply::decode(&ack)?;
         if reply.sequence != block.sequence {
@@ -123,7 +123,7 @@ impl<S: Read + Write> HandshakeClient<S> {
                 reply.status
             )));
         }
-        Ok(reply.size as u32)
+        Ok(reply.sequence)
     }
 }
 
@@ -131,15 +131,13 @@ impl<S: Read + Write> HandshakeClient<S> {
 pub struct Broker<S: Read + Write> {
     stream: S,
     status: u32,
-    next_sequence: u16,
+    next_sequence: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServedExec {
-    pub sequence: u16,
-    pub role: u32,
-    pub payload_len: usize,
-    pub accepted: u32,
+    pub sequence: u32,
+    pub path_len: usize,
 }
 
 impl<S: Read + Write> Broker<S> {
@@ -167,17 +165,15 @@ impl<S: Read + Write> Broker<S> {
 
     /// Read one `TBD1`, validate it, and acknowledge with its payload length.
     pub fn serve_exec(&mut self) -> Result<ServedExec, ChannelError> {
-        let mut header = [0u8; TBD1_HEADER_LEN];
-        read_exact(&mut self.stream, &mut header)?;
-        let declared = u32::from_le_bytes([header[12], header[13], header[14], header[15]]) as usize;
-        if declared > TBD1_MAX_LEN - TBD1_HEADER_LEN {
+        // The frame is a fixed 3192 bytes; read it whole.
+        let mut frame = vec![0u8; TBD1_FRAME_LEN];
+        read_exact(&mut self.stream, &mut frame)?;
+        let declared =
+            u32::from_le_bytes(frame[TBD1_PATH_LEN_OFFSET..TBD1_PATH_LEN_OFFSET + 4].try_into().unwrap())
+                as usize;
+        if declared > TBD1_FRAME_LEN {
             return Err(ChannelError::OversizedFrame(declared));
         }
-        let mut frame = Vec::with_capacity(TBD1_HEADER_LEN + declared);
-        frame.extend_from_slice(&header);
-        frame.resize(TBD1_HEADER_LEN + declared, 0);
-        read_exact(&mut self.stream, &mut frame[TBD1_HEADER_LEN..])?;
-
         let block = Tbd1::decode(&frame)?;
         if self.next_sequence != 0 && block.sequence < self.next_sequence {
             return Err(ChannelError::Unexpected(format!(
@@ -186,15 +182,12 @@ impl<S: Read + Write> Broker<S> {
             )));
         }
         self.next_sequence = block.sequence.wrapping_add(1);
-        let accepted = block.payload.len() as u32;
-        let reply = Tbd1Reply::success(block.sequence, block.role, accepted as u64);
+        let reply = Tbd1Reply::success(TBD1_TAG, block.sequence);
         self.stream.write_all(&reply.encode())?;
         self.stream.flush()?;
         Ok(ServedExec {
             sequence: block.sequence,
-            role: block.role,
-            payload_len: block.payload.len(),
-            accepted,
+            path_len: block.path.len(),
         })
     }
 }
