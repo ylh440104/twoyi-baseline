@@ -1,7 +1,7 @@
 name: Android baseline build
 on:
   push:
-    branches: [opensource-development]
+    branches: [main]
   workflow_dispatch:
     inputs:
       device_smoke:
@@ -221,7 +221,7 @@ jobs:
           retention-days: 7
 
   window-device:
-    if: github.event_name == 'workflow_dispatch' && inputs.device_smoke && github.ref == 'refs/heads/opensource-development'
+    if: github.event_name == 'workflow_dispatch' && inputs.device_smoke && github.ref == 'refs/heads/main'
     needs: assemble
     runs-on: [self-hosted, twoyi-dedicated-test-device]
     concurrency:

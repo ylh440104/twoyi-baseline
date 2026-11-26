@@ -11,7 +11,7 @@
 
 ## 完整云端构建进度
 
-- 开发验证分支：opensource-development；通过轻量文本 overlay 叠加固定上游提交，runner 仅浅拉取上游。
+- 开发验证仓库：ylh440104/twoyi-baseline（公开），分支 main；通过轻量文本 overlay 叠加固定上游提交，runner 仅浅拉取上游。
 - 首次 APK 构建：https://github.com/ylh440104/twoyi-apk-reverse/actions/runs/45588006975 。SDK 安装失败，原因是新版 sdkmanager 要求 JDK 17；尚未到 Rust 或 Java 编译。
 - 已提交修正 12cd23fc0696d971b90c666099913779e6ebf429：SDK 工具使用 JDK 17，旧 Gradle 使用 JDK 11。重跑结果待检查。
 - 同一开发分支回归测试：https://github.com/ylh440104/twoyi-apk-reverse/actions/runs/45588003829 ，两项 success。
