@@ -139,6 +139,23 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段二第五轮：`TBD1` 请求负载的硬证据（22 项单测全绿）
+
+回到 `FUN_00116df4` 开头逐行读，拿到六条硬证据（伪 C 行 4890-4940）：
+
+| 证据 | 含义 |
+|---|---|
+| `*__string == '/'` 否则 `EINVAL(22)` | 负载里的路径**必须是绝对路径** |
+| `strnlen(__string, 0x401)`，空→`ENOENT(2)`，超长→`ENAMETOOLONG(36)` | 路径上限 **1024 字节** |
+| `memset(local_d68, 0, 0xc70)` | 发送前清零 **3184 字节**（= 3192 − 8） |
+| `local_d6a = 0x28` | 偏移 **6** 处 u16 = **40** |
+| `local_d2c = sVar16` | 某处 u32 = **路径长度** |
+| `__memcpy_chk(..., 0xc00)` + 发送 0xC78 | 拷贝上限 3072，报文**定长 3192** |
+
+- 代码侧新增 `tbd1_request_for_path(seq, role, path)`：校验绝对路径与 1024 上限，负载为 `{u32 长度, 路径字节}`，并**在命名与文档里标明路径在帧内的偏移未证实**。
+- CI 运行 45841968202 全绿：handshake 5 + plan 8 + proto 9 = **22 项**（新增 `tbd1_request_for_path_carries_an_absolute_path`）。
+- 仍不能确定：偏移 6 的 `0x28` 是"头长 40"还是别的标志；路径起始偏移（0 还是 40）。Ghidra 的栈槽类型在两处互相矛盾，单靠伪 C 无法定案。
+
 ## 阶段二第四轮：应答包络（21 项单测全绿）+ 一次自我纠错
 
 - `Tbd1Reply` 加到 `proto.rs`：32 字节包络（magic/版本/序号/role/status/flags/3 保留字），`status==0 && flags==1` 视为成功；broker 现在回的是完整包络而不是裸 u32。
