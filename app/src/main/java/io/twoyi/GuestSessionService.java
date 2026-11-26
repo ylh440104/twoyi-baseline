@@ -32,7 +32,6 @@ public final class GuestSessionService extends Service {
             getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, notification());
         }
     };
-    private boolean destroyed;
 
     private void stopSessionOnMain() {
         main.post(() -> {

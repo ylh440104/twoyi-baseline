@@ -26,7 +26,7 @@ public class GlideModule extends AppGlideModule {
     }
 
     public static void loadApplicationIcon(Context context, ApplicationInfo applicationInfo, ImageView view) {
-        GlideApp.with(context)
+        Glide.with(context)
                 .load(applicationInfo)
                 .into(view);
     }
