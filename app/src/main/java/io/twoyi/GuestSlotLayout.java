@@ -32,6 +32,23 @@ public final class GuestSlotLayout {
     }
 
     /**
+     * Create the slot's base directory if missing. Slot 0 is the data directory
+     * and already exists; a new slot lives in {@code slots/<n>} which a ROM
+     * transaction cannot create itself — its journal write needs a real parent.
+     */
+    public static File ensureBaseDirectory(File dataDir, int slot) throws java.io.IOException {
+        File base = baseDirectory(dataDir, slot);
+        java.nio.file.Path path = base.toPath();
+        if (!java.nio.file.Files.isDirectory(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            java.nio.file.Files.createDirectories(path);
+        }
+        if (!java.nio.file.Files.isDirectory(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            throw new java.io.IOException("Guest slot base is not a real directory: " + base);
+        }
+        return base;
+    }
+
+    /**
      * A slot may only serve a guest once its own ROM tree exists. Checking here
      * keeps callers from starting a guest that would fail inside {@code init}.
      */

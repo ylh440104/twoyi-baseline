@@ -71,6 +71,31 @@ public final class GuestSlotLayoutTest {
             }
             rejectsPayload(data, "");
             rejectsPayload(data, "abc");
+            // A fresh slot has no directory yet; a ROM transaction cannot create
+            // its parent, so the layout must be able to prepare one.
+            Path fresh = base.resolve("fresh-data");
+            Files.createDirectories(fresh.resolve("slots"));
+            File freshBase = GuestSlotLayout.ensureBaseDirectory(fresh.toFile(), 1);
+            if (!Files.isDirectory(freshBase.toPath())) {
+                throw new AssertionError("ensureBaseDirectory did not create the slot");
+            }
+            File slotZero = GuestSlotLayout.ensureBaseDirectory(fresh.toFile(), 0);
+            if (!slotZero.equals(fresh.toFile())) {
+                throw new AssertionError("slot 0 base moved");
+            }
+            // Idempotent on an existing directory.
+            if (!GuestSlotLayout.ensureBaseDirectory(fresh.toFile(), 1).equals(freshBase)) {
+                throw new AssertionError("ensureBaseDirectory changed the slot path");
+            }
+            // A file where the slot should be must be refused, not replaced.
+            Path blocked = base.resolve("blocked-data");
+            Files.createDirectories(blocked.resolve("slots"));
+            Files.writeString(blocked.resolve("slots").resolve("2"), "not a directory");
+            try {
+                GuestSlotLayout.ensureBaseDirectory(blocked.toFile(), 2);
+                throw new AssertionError("a file was accepted as a slot directory");
+            } catch (java.io.IOException expected) {
+            }
             System.out.println("PASS: slot layout keeps slot 0 legacy and requires a complete ROM per slot");
         } finally {
             deleteTree(base);

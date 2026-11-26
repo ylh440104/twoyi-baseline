@@ -280,7 +280,7 @@ public final class RomManager {
     }
 
     public static void installRootfs(Context context, boolean thirdParty) throws IOException {
-        installRootfsInto(context, getSlotBaseDir(context), thirdParty);
+        installRootfsInto(context, io.twoyi.GuestProcessProfile.slot(), thirdParty);
     }
 
     /**
@@ -288,10 +288,14 @@ public final class RomManager {
      * preparing a second slot must not touch the slot owned by this process.
      */
     public static void installRootfsForSlot(Context context, int slot, boolean thirdParty) throws IOException {
-        installRootfsInto(context, getSlotBaseDir(context, slot), thirdParty);
+        installRootfsInto(context, slot, thirdParty);
     }
 
-    private static void installRootfsInto(Context context, File base, boolean thirdParty) throws IOException {
+    private static void installRootfsInto(Context context, int slot, boolean thirdParty) throws IOException {
+        // The transaction journal needs a real parent directory; a fresh slot has
+        // none yet, so create it first instead of failing with ENOENT.
+        File base = io.twoyi.GuestSlotLayout.ensureBaseDirectory(
+                context.getApplicationContext().getDataDir(), slot);
         RomInstallTransaction t = RomInstallTransaction.begin(base.toPath());
         Path work = t.extractionDirectory();
         Path archive = work.resolve("input.7z");
