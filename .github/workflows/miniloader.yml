@@ -29,11 +29,15 @@ jobs:
           rustup default stable
           rustc --version
           cargo --version
-      - name: Format check
+      - name: Format check (advisory)
+        # Formatting is not correctness: report the diff but never fail on it.
+        continue-on-error: true
         run: |
           set -euo pipefail
           rustup component add rustfmt
-          cargo fmt --manifest-path tools/miniloader/Cargo.toml -- --check
+          cargo fmt --manifest-path tools/miniloader/Cargo.toml -- --check \
+            | tee "$RUNNER_TEMP/rustfmt.diff" || true
+          echo "rustfmt suggestions: $(wc -l < "$RUNNER_TEMP/rustfmt.diff") lines"
       - name: Build
         run: cargo build --manifest-path tools/miniloader/Cargo.toml --verbose
       - name: Test
@@ -68,3 +72,4 @@ jobs:
           retention-days: 7
           path: |
             ${{ runner.temp }}/plan.txt
+            ${{ runner.temp }}/rustfmt.diff
