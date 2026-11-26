@@ -84,6 +84,39 @@ jobs:
           strings -n 6 "$RUNNER_TEMP/libs/libtwoyi.so" \
             | grep -E '^\(.*\)[A-Za-z\[]' | sort -u | head -120 >> "$out" || true
           cat "$out"
+      - name: Environment variables and sealing flags
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/env-strings.txt"
+          {
+            echo '# TWOYI_* names'
+            strings -n 4 "$RUNNER_TEMP/libs/libtwoyi.so" | grep -oE 'TWOYI_[A-Z0-9_]+' | sort -u || true
+            echo
+            echo '# GRB / SEALED / EXEC tokens'
+            strings -n 4 "$RUNNER_TEMP/libs/libtwoyi.so" | grep -E 'GRB|SEALED|EXEC_|SANDBOX|ALLOW_|DENY_' | sort -u | head -60 || true
+            echo
+            echo '# loader full strings (deduplicated)'
+            strings -n 4 "$RUNNER_TEMP/libs/libloader.so" | sort -u | head -400 || true
+          } > "$out"
+          cat "$out"
+      - name: How much does the loader do itself
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/loader-code.txt"
+          so="$RUNNER_TEMP/libs/libloader.so"
+          {
+            echo "# section sizes"
+            readelf -S "$so" | awk '{print $2, $3, $6}' | head -30 || true
+            echo
+            echo "# raw syscall instructions (svc #0)"
+            objdump -d "$so" 2>/dev/null | grep -c 'svc' || true
+            echo "# dynamic symbols imported"
+            nm -D --undefined-only "$so" 2>/dev/null | head -40 || true
+            echo
+            echo "# init_array entries"
+            readelf -x .init_array "$so" 2>/dev/null | head -10 || true
+          } > "$out"
+          cat "$out"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -92,6 +125,8 @@ jobs:
           retention-days: 7
           path: |
             ${{ runner.temp }}/linkage.txt
+            ${{ runner.temp }}/env-strings.txt
+            ${{ runner.temp }}/loader-code.txt
             ${{ runner.temp }}/loader-strings.txt
             ${{ runner.temp }}/twoyi-strings.txt
             ${{ runner.temp }}/jni-names.txt
