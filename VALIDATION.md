@@ -116,6 +116,15 @@
 
 - ARM64 生命周期用例现通过正式安装器依次导入单 APK、同签名的 base 与 feature 分包组合，并检查损坏 APK 的失败清理。Actions 生成两份 API 27 测试 APK 并核对签名和打包后的哈希。实际分包安装待 ARM64 设备执行。
 
+## 中断安装阻塞后续安装
+
+- 发现一个会永久卡死“给实例装系统”的缺陷：ROM 事务开始时要求槽目录里没有任何既有日志/临时目录，而安装被取消或进程被杀会留下 `.rom-install-v1` 与 `.rom-build-*`。槽 0 的启动路径本来就会先 `recoverInstall`，但按槽安装路径没有，于是**一次中断之后该槽再也装不上**；释放实例也不会清这些残留。
+- 修复：`RomInstallTransaction.abandon` 丢弃“未发布计划”的事务（拒绝清掉已发布的计划，那种必须走恢复）；`RomManager.installRootfsInto` 先 `recover()` 既有事务再开新事务；带清理的释放先 `abandonIncompleteInstall` 再删 rootfs。
+- 保持纯 Java 可测：`GuestInstanceManager` 不直接依赖 Android 的 `RomManager`，改为接受 `SlotCleaner` 回调（Android 侧传 `RomManager::abandonIncompleteInstall`），宿主用例可注入探针验证回调确实被调用。
+- 回归新增：begin→abandon→begin 可复用、空闲时 abandon 返回 false、已发布计划被拒绝 abandon。
+- Actions 全部通过（十四项 PASS），运行 https://github.com/ylh440104/twoyi-baseline/actions/runs/45787896768 ，同批 APK 构建成功。
+- 未验收：真实解包被中断（杀进程/断电）后的恢复效果。
+
 ## 设备自检入口
 
 - 新增 `GuestSelfCheck` 与设置项“运行基座自检”：在没有 CI 设备的机器上，用真实沙箱验证槽位布局、注册表持久化、启动闸门、嵌套槽清理与“数据目录本身不可删”等不变量，并把逐条结果直接显示在对话框里。所有写入都落在缓存临时目录，不碰已安装的来宾。
