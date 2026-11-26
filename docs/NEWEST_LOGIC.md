@@ -81,13 +81,36 @@ fields: id, ??, long, serial, int
 - 清单：`GuestInstanceService$Slot0..3` 分处 `:guest0..:guest3`，`HostDisplayService` 在 `:guest0`。
 - `HostBackdropActivity`（`:guest0`）配合 `DisplayManager`/`VirtualDisplay` 承担“后台屏”，`host/u.java`、`host/k.java`、`host/d0.java` 都在用 `VirtualDisplay` API —— 即最新版是靠**虚拟显示器**把来宾画面投到宿主窗口，而不是把 Surface 直接交给渲染器。
 
-## 5. HAL 桥接
+## 5. 原生层实测（本轮新增）
+
+对 `libtwoyi.so`（9,850,096 字节）、`libloader.so`（147,768）、`libloader32.so`（146,256）做了依赖、符号与字符串分析（run 45815673066、45816199208）：
+
+- **libtwoyi.so 只依赖** `libandroid / liblog / libc / libm / libdl`：没有 libvulkan、没有 libEGL/GLES 依赖，只导出 `JNI_OnLoad` 一个符号。说明 **gfxstream 是静态编进 libtwoyi.so 的**，不是外挂库。
+- 字符串里出现 `/data/twoyi-13/device/generic/vulkan-cereal/...`（含 `stream-servers/RendererImpl.cpp`、`glestranslator/EGL/*`、`address_space_graphics.cpp`、`WindowSurface.cpp`、`ChannelStream.cpp`）——构建路径直接暴露了：**宿主渲染器是 AOSP 13 的 vulkan-cereal（gfxstream）**，宿主侧做 GLES→Vulkan 转换。
+- 还出现 `zstd` 符号（weak，静态链入）→ 解包 zstd 也在 native，不在 Java。
+- **libloader.so / libloader32.so 是 PIE 可执行文件**（`Type: DYN`，有 `.interp`，入口 0x5e30/0x5370），只依赖 libc/libdl，导出 0 个符号，`objdump` 里 **`svc` 指令数为 0**（不自己发系统调用）。
+- loader 里的关键字符串：`/system/bin/linker64`、`/system/bin/linker`、`__libc_init`、`sigaltstack`、`TWOYI_ROOTFS_EXEC=GRB_V2:CODE_OPEN:EXEC_SEALED`。
+  → 它不是内核，而是**借用来宾自带的 linker 来装载并执行来宾 init**，并用 `TWOYI_ROOTFS_EXEC` 的 `GRB_V2:CODE_OPEN:EXEC_SEALED` 形式表示执行策略/密封模式。
+- loader 导入 `dlopen/dlsym/fork/clone/exec*` 以及 `getaddrinfo/gethostbyname/getpeername/getsockopt` 等一批 libc 函数，符合“用户态运行时垫片”的角色。
+- libtwoyi 里还能看到 `ANDROID_EMU_SANDBOX` 字符串（沙箱相关），以及 vulkan device 选择的告警文案，说明渲染设备在宿主侧挑选。
+
+尚未解开（这才是“完全一样”的真正门槛）：
+
+1. `GRB_V2:CODE_OPEN:EXEC_SEALED` 的具体语义与 loader 与 init 之间的握手指令流。
+2. `gfxstream-vulkan` 目录里谁创建文件、格式如何、与 `address_space_graphics` 的共享内存约定。
+3. `twoyi_hal` 各模块（audio/sensors/gps/lights/vibrator）的帧结构；camera 的 `twoyi_camera_transport` 头定义。
+4. `TwoyiResolverHal` 988 字节响应的字段布局。
+5. 共享 rootfs 下实例数据的隔离点（`androidboot.twoyi.instance` 被谁消费）。
+
+第 1、2 项需要反汇编 + 设备侧动态追踪；第 3、4 项可以靠“对着旧 ROM 的 HAL 客户端抓真实字节”反推。**这已经不是靠字符串和清单能完成的工作量**，属于二进制逆向阶段。
+
+## 6. HAL 桥接
 
 - 各 HAL 模块连 `twoyi_hal`（audio/lights/vibrator/sensors/gps），camera 走自有 `twoyi_camera_transport`，HWC 走 gfxstream 共享内存。
 - 另有两个特殊 HAL：`TwoyiResolverHal`（读 360 字节请求、返回固定 988 字节响应，进入 native `nativeResolve`）与 `KernelSuHal`（把 socket fd 复制后交给 native `nativeHandle`）。
 - 说明“完全复刻 HAL”需要 native 侧实现，不是纯 Java 能做到的。
 
-## 6. 与我们当前实现的差异结论
+## 7. 与我们当前实现的差异结论
 
 | 项目 | 0.5.4 基座（现状） | 0.7.5（目标） |
 |---|---|---|
@@ -97,7 +120,7 @@ fields: id, ??, long, serial, int
 | 多实例 | 每槽一套目录与端点名 | 共享 rootfs，实例号经 cmdline，进程按槽拆分 |
 | 后台屏 | 无 | `VirtualDisplay` + `HostBackdropService` |
 
-## 7. 未解问题（下一步验证）
+## 8. 未解问题（下一步验证）
 
 1. 共享 rootfs 下 guest 内部如何隔离实例数据（是否 `/data/user/<n>`、`androidboot.twoyi.instance` 被 init 读取后做了什么）。
 2. `gfxstream-vulkan` 目录内文件的生成与消费方式。
