@@ -1,0 +1,97 @@
+name: Inspect the newest native libraries
+
+# The Java layer is fully readable, but the launch, rendering and HAL bridges are
+# native. This job answers the remaining questions from the binaries: which
+# libraries link what, which strings describe the loader's kernel shim, how the
+# gfxstream directory is used and what JNI methods are registered by name.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/native-inspect.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Install binutils
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y binutils
+      - name: Download and verify the APK
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/twoyi.apk" \
+            https://dl.twoyi.ai/twoyi_0.7.5-11131322.apk
+          echo "86ed3afaa447104f131d906c42ed8a07e207959c7869fda54bd245f62db14f4e  $RUNNER_TEMP/twoyi.apk" \
+            | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/libs"
+          unzip -o -j "$RUNNER_TEMP/twoyi.apk" 'lib/arm64-v8a/*.so' -d "$RUNNER_TEMP/libs" >/dev/null
+          ls -l "$RUNNER_TEMP/libs"
+      - name: Linkage and sections
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/linkage.txt"
+          for so in "$RUNNER_TEMP/libs"/*.so; do
+            echo "## $(basename "$so")" >> "$out"
+            readelf -h "$so" | grep -E 'Type|Machine|Entry' >> "$out" || true
+            echo "-- needed" >> "$out"
+            readelf -d "$so" 2>/dev/null | grep NEEDED >> "$out" || true
+            echo "-- undefined imports of interest" >> "$out"
+            nm -D --undefined-only "$so" 2>/dev/null \
+              | grep -iE 'vulkan|gfxstream|EGL|GLES|android|log|zstd|seccomp|mount|ptrace|binder' \
+              | head -40 >> "$out" || true
+            echo >> "$out"
+          done
+          cat "$out"
+      - name: Strings that explain the loader
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/loader-strings.txt"
+          for so in "$RUNNER_TEMP/libs/libloader.so" "$RUNNER_TEMP/libs/libloader32.so"; do
+            echo "## $(basename "$so")" >> "$out"
+            strings -n 4 "$so" \
+              | grep -iE 'androidboot|twoyi|instance|rootfs|seccomp|mount|ptrace|sig|/proc|/dev|/sys|vulkan|binder|init|zygote|ld\.|linker|exec' \
+              | sort -u | head -300 >> "$out" || true
+            echo >> "$out"
+          done
+          cat "$out"
+      - name: Strings that explain the renderer and HAL
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/twoyi-strings.txt"
+          strings -n 5 "$RUNNER_TEMP/libs/libtwoyi.so" \
+            | grep -iE 'gfxstream|vulkan|twoyi_hal|TWOYI_SOCK|instances?|rootfs|androidboot|resolver|emugl|AddressSpace|RenderThread|subwindow|touch|key0' \
+            | sort -u | head -400 > "$out" || true
+          echo "total strings: $(strings -n 5 "$RUNNER_TEMP/libs/libtwoyi.so" | wc -l)" >> "$out"
+          cat "$out"
+      - name: Registered JNI entry points
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/jni-names.txt"
+          strings -n 4 "$RUNNER_TEMP/libs/libtwoyi.so" \
+            | grep -E '^(native|Java_|io/twoyi)' | sort -u | head -200 > "$out" || true
+          # Method names registered through RegisterNatives are plain strings next
+          # to their signatures.
+          strings -n 6 "$RUNNER_TEMP/libs/libtwoyi.so" \
+            | grep -E '^\(.*\)[A-Za-z\[]' | sort -u | head -120 >> "$out" || true
+          cat "$out"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: newest-native-inspection
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/linkage.txt
+            ${{ runner.temp }}/loader-strings.txt
+            ${{ runner.temp }}/twoyi-strings.txt
+            ${{ runner.temp }}/jni-names.txt
