@@ -25,28 +25,48 @@ DAT_0012e0f6 = ~DAT_0012e0d6 & 0xef | DAT_0012e0d6 & 0x10;               // == c
 
 这一步完全在文本层完成，不需要再跑 Ghidra。
 
-## 已解出的明文（截至本轮）
+## 已解出的明文（全表，本轮补全 `.data` 窗口后）
 
-| 地址（file vaddr） | 明文 | 意义 |
+| file vaddr | 明文 | 意义 |
 |---|---|---|
-| `0x2e0d0` | `invalid guest ex…` | 校验失败时的错误串（后续字节待补） |
-| `0x2e36a` | `…OMP_END` | 疑似 `BOOTSTRAP_END` 或 `…COMP_END` 尾部 |
-| `0x2e3d2` | `…valid` | 同上族错误串 |
-| `0x2e426` | `… attach` | 与 attach 握手相关 |
-| `0x2e430` | `…est roo…` | 疑似 `test rootfs…` |
-| `0x2ef19` | `/proc/self/fd` | fd 回收路径前缀 |
-| `0x2ef50` | `TWOYI_LINKER_BOOT_DATA_FD` | **握手 fd 的环境变量名** |
-| `0x2ef90` | `TWOYI_LINKER_BOOT_DATA_FD` | 同上（另一处用法） |
-| `0x2efd0` | `TWOYI_GRB_ATTACH_VERSION` | **attach 协议版本号变量**，值须为 `"2"` |
-| `0x2effc` | `TWOYI_GUEST_UID` | 来宾 uid |
-| `0x2f01c` | `TWOYI_GUEST_GID` | 来宾 gid |
-| `0x2f034` | `error: ` | 诊断输出前缀 |
-| `0x2f071` | `…WOYI_CODE_REPORT_FD` | 疑似 `TWOYI_CODE_REPORT_FD`，代码报告 fd |
+| `0x2e0f1` | `invalid guest executable path` | 入口校验失败 |
+| `0x2e1c0` | `invalid initial process stack` | 启动栈校验 |
+| `0x2e200` | `invalid or missing AT_PAGESZ` | 依赖 auxv 的 `AT_PAGESZ` |
+| `0x2e290` | `invalid transport argument block` | 传输参数块 |
+| `0x2e300` | `required host libc bridge symbols are unavailable` | **宿主 libc 桥**缺失即致命 |
+| `0x2e360` | `TWOYI_SECCOMP_ENDPOINT` | **seccomp 端点环境变量** |
+| `0x2e3d0` | `invalid seccomp endpoint` | 端点参数不合法 |
+| `0x2e426` | `cannot attach guest rootfs broker: errno %d` | 连接 **rootfs broker** 失败 |
+| `0x2e470` | `/data/data/io.twoyi/rootfs` | 固定 rootfs 路径 |
+| `0x2e4b0` | `cannot open guest rootfs` | 打开 rootfs 失败 |
+| `0x2e500` | `android_set_application_target_sdk_version` | 从宿主 libc 取的符号 |
+| `0x2e560` | `guest initial stack is too large` | 初始栈上限 |
+| `0x2e5c0` | `cannot rebuild guest initial stack` | 重建初始栈失败 |
+| `0x2e610` | `/system/bin/init` | 被装载的来宾入口 |
+| `0x2e660` | `cannot reset process state for guest exec` | exec 前状态复位 |
+| `0x2e6b0` | `libdl_android.so` | 被 dlopen 的宿主库 |
+| `0x2e710` | `cannot resolve guest ELF %s: error %d` | 来宾 ELF 解析失败 |
+| `0x2e780` | `cannot inspect broker ELF %s: error %d` | broker 侧 ELF 解析失败 |
+| `0x2e840` | `cannot map guest ELF %s: error %d` | 段映射失败 |
+| `0x2eda0` | `TWOYI_SECCOMP_ENDPOINT=` | 环境项原型 |
+| `0x2edc0` | `TWOYI_ROOTFS=/data/data/io.twoyi/rootfs` | 环境项原型 |
+| `0x2ee20` | `/proc/self/fd/%d` | fd 路径构造 |
+| `0x2ee40` | `TYLOADER=` | **与 0.5.4 开源实现同名的环境变量** |
+| `0x2ef50` | `TWOYI_LINKER_BOOT_DATA_FD` | 握手 fd 的环境变量名 |
+| `0x2efd0` | `TWOYI_GRB_ATTACH_VERSION` | attach 协议版本（值须为 `"2"`） |
+| `0x2effc` | `TWOYI_GUEST_UID` / `TWOYI_GUEST_GID` | 来宾身份 |
+| `0x2f071` | `TWOYI_CODE_REPORT_FD` | 代码报告 fd |
 
-结论层面的收获：loader 与宿主的**契约是环境变量 + fd**，而不是配置文件或固定路径。握手要点是
-`TWOYI_LINKER_BOOT_DATA_FD`（SCM_RIGHTS 传进来的 fd）、`TWOYI_GRB_ATTACH_VERSION="2"`、
-`TWOYI_GUEST_UID/GID`、`TWOYI_CODE_REPORT_FD`。这与 `docs/LOADER_RE.md` 里 `0x116520` 的 32 字节 `B1F2` 报文、
-`0x116df4` 的 3192 字节 `TBD1` 报文正好互为表里。
+## 由此确立的架构结论
+
+loader 不是“内核替身”，而是一个 **ELF 装载器 + seccomp 客户端**：
+
+1. 它把 `/system/bin/init` 按 ELF 段映射进内存（`0x113a70`/`0x114560`），重建初始栈，然后跳转；
+2. 所有“内核缺失”的系统调用，靠 **`TWOYI_SECCOMP_ENDPOINT` 指向的 seccomp user-notify 端点**交给宿主的 **rootfs broker / libc bridge** 处理；
+3. 宿主侧要提供 `libdl_android.so` 及一批 **libc bridge 符号**，否则 loader 直接 `required host libc bridge symbols are unavailable` 致命退出；
+4. 两个 fd 通过环境变量与 SCM_RIGHTS 传进来：`TWOYI_LINKER_BOOT_DATA_FD`（启动数据）与 `TWOYI_CODE_REPORT_FD`（代码上报）。
+
+这解释了此前所有“loader 里 `svc` 数为 0”“找不到 ptrace/mount”的观察：**它不是自己伪造 syscall，而是让 seccomp 把 syscall 转给宿主**。同时也说明 `docs/LOADER_RE.md` 里 `0x116520` 的 32 字节 `B1F2` 报文就是 **broker 握手**，`0x116df4` 的 3192 字节 `TBD1` 报文是**执行前的参数块**。
 
 ## 仍缺
 
