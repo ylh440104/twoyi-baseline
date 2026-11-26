@@ -110,7 +110,27 @@ fields: id, ??, long, serial, int
 - 另有两个特殊 HAL：`TwoyiResolverHal`（读 360 字节请求、返回固定 988 字节响应，进入 native `nativeResolve`）与 `KernelSuHal`（把 socket fd 复制后交给 native `nativeHandle`）。
 - 说明“完全复刻 HAL”需要 native 侧实现，不是纯 Java 能做到的。
 
-## 7. 与我们当前实现的差异结论
+## 7. loader 初步反编译（研究路线，进行中）
+
+云端用 Ghidra 11.0.3 headless 对 `libloader.so` 做全量反编译（run 45819687672，产物 560 KB 伪 C，14231 行，7 天期 artifact）。
+
+已确认的事实：
+
+- 入口只有两步：`entry → FUN_00105e44 → __libc_init(argc, 0, PTR_FUN_00129d90, &stack)`，即它是一个**自带 ELF 装载器的运行时**，不依赖系统 linker。
+- 它自己实现了动态链接所需的机制：导入 `dlopen/dlsym/dlclose`、`mmap/mprotect/pread64`、`syscall`、`socketpair`、`sigaltstack`、`strtol/strtoul/router` 等，说明**段映射、重定位、异常信号栈**都由它自己做。
+- 体积分布：`FUN_00107598`（37 KB）、`FUN_00119008`（17 KB）、`FUN_00118028`（4 KB）、`FUN_00110 808`（6.7 KB）是主要逻辑块，应为 ELF 解析/重定位/初始化；这与“无内核跑 init”的分工吻合：loader 负责把来宾可执行文件搬进内存并跳转，系统调用层由 libtwoyi 侧接管。
+- 字符串 `/system/bin/linker64` 仅作为引用出现一次，没有二次调用，说明它**替代**而非复用来宾 linker。
+
+下一步要回答的问题（按顺序）：
+
+1. `FUN_00105e44` 之后的初始化数组 `PTR_FUN_00129d90` 依次调用了什么（决定它先建什么运行时状态）。
+2. 37 KB 的 `FUN_00107598` 是 ELF 解析还是重定位循环，函数内对 `PTR_`/`DAT_` 的引用分布。
+3. loader 与 libtwoyi 的握手参数（`TWOYI_ROOTFS_EXEC=GRB_V2:CODE_OPEN:EXEC_SEALED` 由谁读、读后做什么）。
+4. syscall 垫片在哪一侧（loader 内或 libtwoyi 内）——目前看 loader 自己发 `syscall`，需要确认拦截点。
+
+结论：这条路线可行但要按“函数簇”逐个啃，属于周级工作；本轮已经建立了**可重复的云端反编译流水线**，后续每轮产出可读的伪 C 片段并归档结论。
+
+## 8. 与我们当前实现的差异结论
 
 | 项目 | 0.5.4 基座（现状） | 0.7.5（目标） |
 |---|---|---|
@@ -120,7 +140,7 @@ fields: id, ??, long, serial, int
 | 多实例 | 每槽一套目录与端点名 | 共享 rootfs，实例号经 cmdline，进程按槽拆分 |
 | 后台屏 | 无 | `VirtualDisplay` + `HostBackdropService` |
 
-## 8. 未解问题（下一步验证）
+## 9. 未解问题（下一步验证）
 
 1. 共享 rootfs 下 guest 内部如何隔离实例数据（是否 `/data/user/<n>`、`androidboot.twoyi.instance` 被 init 读取后做了什么）。
 2. `gfxstream-vulkan` 目录内文件的生成与消费方式。
