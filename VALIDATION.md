@@ -116,6 +116,14 @@
 
 - ARM64 生命周期用例现通过正式安装器依次导入单 APK、同签名的 base 与 feature 分包组合，并检查损坏 APK 的失败清理。Actions 生成两份 API 27 测试 APK 并核对签名和打包后的哈希。实际分包安装待 ARM64 设备执行。
 
+## 设备自检入口
+
+- 新增 `GuestSelfCheck` 与设置项“运行基座自检”：在没有 CI 设备的机器上，用真实沙箱验证槽位布局、注册表持久化、启动闸门、嵌套槽清理与“数据目录本身不可删”等不变量，并把逐条结果直接显示在对话框里。所有写入都落在缓存临时目录，不碰已安装的来宾。
+- 同时修掉一个只在云端暴露的问题：应用模块以 Java 8 源码级别编译，而我写的 `Files.writeString` 与 `var` 属于 Java 9/10+，`assembleDebugJavaWithJavac` 直接报 `cannot find symbol`。已改为 Java 8 可用写法。
+- `tools/check_slot_paths.py` 增加 Java 版本守卫：禁止主代码出现 `Files.writeString/readString`、`List.of/Map.of/Set.of`、`var`。并做过反向验证——故意插入 `var probe` 后脚本报 `FAIL` 返回 1，恢复后 `PASS`。
+- Actions 全部通过：host 十四项 PASS（https://github.com/ylh440104/twoyi-baseline/actions/runs/45783451503 ），APK 构建成功（同批 run `.../45783451511`）。
+- 自检本身尚未在真机跑过；它的输出就是给用户自己在设备上取证用的。
+
 ## 控制 socket 重试上限与破坏性操作前置条件
 
 - 上一轮确认 socket 名必须在所有槽之间共用，于是出现新风险：另一个来宾进程若已占用该名字，本进程 `bind` 会失败，而原实现每 1 秒无限重试，既耗电又刷日志，来宾永远连不上。
