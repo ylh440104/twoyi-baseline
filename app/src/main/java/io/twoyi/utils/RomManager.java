@@ -149,6 +149,11 @@ public final class RomManager {
         return io.twoyi.GuestProcessProfile.slotDirectory(context);
     }
 
+    /** Same directory for an explicitly chosen slot, used when preparing another slot. */
+    public static File getSlotBaseDir(Context context, int slot) {
+        return io.twoyi.GuestSlotLayout.baseDirectory(context.getApplicationContext().getDataDir(), slot);
+    }
+
     private static void createLoaderSymlink(Context context) {
         Path loaderSymlink = new File(getSlotBaseDir(context), "loader64").toPath();
         String loaderPath = getLoaderPath(context);
@@ -275,7 +280,19 @@ public final class RomManager {
     }
 
     public static void installRootfs(Context context, boolean thirdParty) throws IOException {
-        RomInstallTransaction t = RomInstallTransaction.begin(getSlotBaseDir(context).toPath());
+        installRootfsInto(context, getSlotBaseDir(context), thirdParty);
+    }
+
+    /**
+     * Install into one explicit slot. Only one transaction may exist per slot, so
+     * preparing a second slot must not touch the slot owned by this process.
+     */
+    public static void installRootfsForSlot(Context context, int slot, boolean thirdParty) throws IOException {
+        installRootfsInto(context, getSlotBaseDir(context, slot), thirdParty);
+    }
+
+    private static void installRootfsInto(Context context, File base, boolean thirdParty) throws IOException {
+        RomInstallTransaction t = RomInstallTransaction.begin(base.toPath());
         Path work = t.extractionDirectory();
         Path archive = work.resolve("input.7z");
         if (thirdParty) {
@@ -288,7 +305,7 @@ public final class RomManager {
             }
         }
         RomArchiveBudget budget = RomArchivePreflight.inspect(archive);
-        budget.checkAvailable(getSlotBaseDir(context).getUsableSpace());
+        budget.checkAvailable(base.getUsableSpace());
         int code = P7ZipApi.executeCommand(String.format(Locale.US, "7z x -mmt=%d -aoa '%s' '-o%s'",
                 Runtime.getRuntime().availableProcessors(), archive, work));
         if (code != 0) throw new IOException("ROM extraction failed: " + code);
