@@ -4,8 +4,8 @@
 //! silently from the reconstructed contract.
 
 use miniloader::proto::{
-    ProtoError, Tbd1, B1F2, B1F2_KIND, B1F2_LEN, B1F2_MAGIC, B1F2_STATUS, B1F2_VERSION,
-    TBD1_HEADER_LEN, TBD1_MAGIC, TBD1_MAX_PAYLOAD, TBD1_VERSION,
+    ProtoError, B1F2, B1F2_KIND, B1F2_LEN, B1F2_MAGIC, B1F2_STATUS, B1F2_VERSION, TBD1_MAGIC,
+    TBD1_VERSION,
 };
 
 #[test]
