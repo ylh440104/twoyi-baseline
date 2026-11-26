@@ -29,4 +29,10 @@
         <item name="android:windowContentOverlay">@null</item>
     </style>
 
+
+    <!-- Shell theme for the Compose surface; the action bar is Compose's TopAppBar. -->
+    <style name="Theme.Twoyi.Twin" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
 </resources>

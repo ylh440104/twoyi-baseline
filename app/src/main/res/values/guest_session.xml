@@ -43,4 +43,6 @@
     <string name="guest_self_check_running">Running self check…</string>
     <string name="guest_crash_report">Last start-up crashed</string>
     <string name="guest_crash_continue">Continue</string>
+    <string name="guest_open_shell">Open new shell (preview)</string>
+    <string name="guest_open_shell_summary">Compose + Material 3 shell that mirrors the newest layout</string>
 </resources>

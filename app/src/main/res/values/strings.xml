@@ -92,4 +92,11 @@
     <string name="settings_key_shutdown">Shutdown</string>
     <string name="settings_key_reboot">Reboot</string>
     <string name="replace_rom_unofficial_tips">Sorry, please edit the rom info and avoid using official author name :)</string>
+    <string name="twin_tab_twin">Twin</string>
+    <string name="twin_tab_phone">Phone</string>
+    <string name="twin_boot_opening">Hi, I am your Twin. First, create a phone for me. You can use it like any other phone. Connect me to a model too, and you can hand over what you are doing whenever you want.</string>
+    <string name="twin_boot_step1_title">Create a Twin phone</string>
+    <string name="twin_boot_step1_desc">A separate, empty phone. You choose what to install and which accounts to use.</string>
+    <string name="twin_phone_empty_title">No Twin phone yet</string>
+    <string name="twin_phone_empty_desc">This will be a separate phone. It will not automatically copy apps, accounts, or private data from your main phone.</string>
 </resources>

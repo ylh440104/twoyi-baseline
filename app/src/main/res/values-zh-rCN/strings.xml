@@ -90,4 +90,11 @@
     <string name="settings_key_shutdown">关机</string>
     <string name="settings_key_reboot">重启</string>
     <string name="replace_rom_unofficial_tips">抱歉，请修改 ROM 描述信息，并且尽量不要使用官方作者的名字 :)</string>
+    <string name="twin_tab_twin">孪生</string>
+    <string name="twin_tab_phone">手机</string>
+    <string name="twin_boot_opening">你好，我是你的孪生。先为我创建一部手机，你可以像用普通手机一样用它；也可以连接模型，随时把手上在做的事交给我。</string>
+    <string name="twin_boot_step1_title">创建孪生手机</string>
+    <string name="twin_boot_step1_desc">一部独立、空白的手机。装什么、登录什么账号都由你决定。</string>
+    <string name="twin_phone_empty_title">还没有孪生手机</string>
+    <string name="twin_phone_empty_desc">它会是一部独立的手机，不会自动复制你主力机上的应用、账号或隐私数据。</string>
 </resources>

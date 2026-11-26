@@ -43,4 +43,6 @@
     <string name="guest_self_check_running">正在运行自检…</string>
     <string name="guest_crash_report">上次启动崩溃</string>
     <string name="guest_crash_continue">继续</string>
+    <string name="guest_open_shell">打开新界面（预览）</string>
+    <string name="guest_open_shell_summary">与最新版布局一致的 Compose + Material 3 界面</string>
 </resources>

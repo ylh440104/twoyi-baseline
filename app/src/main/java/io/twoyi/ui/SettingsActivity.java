@@ -389,6 +389,13 @@ public class SettingsActivity extends AppCompatActivity {
                     return true;
                 });
             }
+            Preference shellPreference = findPreference("guest_open_shell");
+            if (shellPreference != null) {
+                shellPreference.setOnPreferenceClickListener(preference -> {
+                    UIHelper.startActivity(getContext(), io.twoyi.ui.twin.TwinActivity.class);
+                    return true;
+                });
+            }
             Preference selfCheckPreference = findPreference("guest_self_check");
             if (selfCheckPreference != null) {
                 selfCheckPreference.setOnPreferenceClickListener(preference -> {

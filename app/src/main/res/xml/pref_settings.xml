@@ -22,6 +22,11 @@
             android:title="@string/guest_instance_create" />
 
         <Preference
+            android:key="guest_open_shell"
+            android:summary="@string/guest_open_shell_summary"
+            android:title="@string/guest_open_shell" />
+
+        <Preference
             android:key="guest_self_check"
             android:summary="@string/guest_self_check_summary"
             android:title="@string/guest_self_check" />
