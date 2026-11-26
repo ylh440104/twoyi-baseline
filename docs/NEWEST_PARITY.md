@@ -35,6 +35,12 @@
 3. UI 对齐 Compose + Material 3 需要整体重写界面层；在基座验收前不改 UI 框架，只补齐设置项与状态展示等可复用部分。
 4. ROM 换代到 `rootfs.tar.zst` 需要新的原生解包接口，属于独立阶段，不能沿用 `libp7zip`。
 
+## 已验证
+
+- 云端托管 arm64 runner 探测成功（`ubuntu-24.04-arm`，aarch64，无 `/dev/kvm`），可用于纯编译与单元回归，不能跑模拟器。
+- `GuestSlot` 槽位模型已在 Actions host 回归中通过（`PASS: slot paths, process names and endpoint isolation`），运行 https://github.com/ylh440104/twoyi-baseline/actions/runs/45740222922 。
+- 新仓库常规构建连续成功：https://github.com/ylh440104/twoyi-baseline/actions/runs/45739426196 、https://github.com/ylh440104/twoyi-baseline/actions/runs/45737974938 。
+
 ## 尚未验证
 
 - 最新版实例创建、槽位切换、后台屏与 PIP 的真实运行行为。
