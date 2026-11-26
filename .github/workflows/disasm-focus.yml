@@ -1,0 +1,72 @@
+name: Disassemble the handshake functions
+
+# The pseudo-C from Ghidra mistypes the stack slots of the TBD1 builder, so the
+# confirms of "where does the path start inside the 3192-byte frame" cannot be
+# settled from it. This job prints the actual instruction stream for the two
+# handshake functions, which carries the real stack offsets.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/disasm-focus.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  disassemble:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Install binutils
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y binutils
+      - name: Download and verify the APK
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/twoyi.apk" \
+            https://dl.twoyi.ai/twoyi_0.7.5-11131322.apk
+          echo "86ed3afaa447104f131d906c42ed8a07e207959c7869fda54bd245f62db14f4e  $RUNNER_TEMP/twoyi.apk" \
+            | sha256sum --check
+          unzip -o -j "$RUNNER_TEMP/twoyi.apk" 'lib/arm64-v8a/libloader.so' -d "$RUNNER_TEMP/libs" >/dev/null
+          ls -l "$RUNNER_TEMP/libs"
+      - name: Disassemble the handshake functions
+        run: |
+          set -euo pipefail
+          so="$RUNNER_TEMP/libs/libloader.so"
+          # Ghidra addresses are vaddr + 0x100000; objdump works on raw vaddr.
+          objdump -d --no-show-raw-insn \
+            --start-address=0x16520 --stop-address=0x171c8 "$so" \
+            > "$RUNNER_TEMP/handshake-disasm.txt" 2>&1 || true
+          wc -l "$RUNNER_TEMP/handshake-disasm.txt"
+          head -40 "$RUNNER_TEMP/handshake-disasm.txt"
+      - name: Find where the TBD1 magic and the 0x28 field are stored
+        run: |
+          set -euo pipefail
+          src="$RUNNER_TEMP/handshake-disasm.txt"
+          out="$RUNNER_TEMP/magic-stores.txt"
+          {
+            echo '# instructions mentioning the magic or the 0x28 constant'
+            grep -n -E '0x31444254|0x4254|0x28|movz|movk' "$src" | head -120 || true
+            echo
+            echo '# every store (str/stur) with its stack offset'
+            grep -n -E '\b(str|stur|stp)\b' "$src" | head -200 || true
+            echo
+            echo '# call sites to the send/recv helpers'
+            grep -n -E '\bbl\b' "$src" | tail -40 || true
+          } > "$out"
+          head -80 "$out"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: handshake-disasm
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/handshake-disasm.txt
+            ${{ runner.temp }}/magic-stores.txt
