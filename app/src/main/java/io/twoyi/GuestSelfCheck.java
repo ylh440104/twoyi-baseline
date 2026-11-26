@@ -37,6 +37,8 @@ public final class GuestSelfCheck {
         try {
             work = Files.createTempDirectory(app.getCacheDir().toPath(), "selfcheck-");
             failures += checkSlotLayout(app.getDataDir(), work, lines);
+            failures += checkEndpoints(app.getDataDir(), lines);
+            failures += checkBundledRom(app, lines);
             failures += checkRegistry(work, lines);
             failures += checkGate(work, lines);
             failures += checkWipe(work, lines);
@@ -69,6 +71,59 @@ public final class GuestSelfCheck {
         File created = GuestSlotLayout.ensureBaseDirectory(fresh.toFile(), 1);
         failures += expect(Files.isDirectory(created.toPath()), lines,
                 "slot base can be created before a ROM transaction", "slot base not created: " + created);
+        return failures;
+    }
+
+
+    /** The endpoints of slot 0 must stay distinct files inside the data directory. */
+    private static int checkEndpoints(File dataDir, List<String> lines) {
+        int failures = 0;
+        GuestEndpoints endpoints = GuestEndpoints.forSlot(0, dataDir);
+        String prefix = dataDir.getPath() + File.separator;
+        boolean inside = endpoints.getRootfsDir().startsWith(prefix)
+                && endpoints.getLogFile().startsWith(prefix)
+                && endpoints.getTouchSocketPath().startsWith(prefix)
+                && endpoints.getKeySocketPath().startsWith(prefix);
+        failures += expect(inside, lines,
+                "slot 0 endpoints live inside the data directory", "an endpoint escaped the data directory");
+        boolean distinct = !endpoints.getLogFile().equals(endpoints.getTouchSocketPath())
+                && !endpoints.getTouchSocketPath().equals(endpoints.getKeySocketPath());
+        failures += expect(distinct, lines,
+                "log and input sockets use distinct paths", "endpoint paths collide");
+        failures += expect(GuestEndpoints.DEFAULT_CONTROL_SOCKET.equals(endpoints.getControlSocketName()),
+                lines, "control socket keeps the ROM's compiled-in name",
+                "control socket name changed: " + endpoints.getControlSocketName());
+        return failures;
+    }
+
+    /**
+     * A missing or truncated bundled ROM fails install later with a confusing
+     * error; checking the asset envelope here tells the user up front.
+     */
+    private static int checkBundledRom(Context app, List<String> lines) {
+        int failures = 0;
+        try (java.io.InputStream archive = app.getAssets().open("rootfs.7z")) {
+            byte[] header = new byte[6];
+            int read = 0;
+            while (read < header.length) {
+                int count = archive.read(header, read, header.length - read);
+                if (count <= 0) break;
+                read += count;
+            }
+            boolean sevenZip = read == header.length
+                    && header[0] == 0x37 && header[1] == 0x7a && header[2] == 0xbc
+                    && header[3] == 0xaf && header[4] == 0x27 && header[5] == 0x1c;
+            failures += expect(sevenZip, lines, "bundled rootfs.7z has a 7z header",
+                    "bundled rootfs.7z header is wrong or the asset is missing");
+        } catch (IOException missing) {
+            failures += expect(false, lines, "bundled rootfs.7z is readable",
+                    "cannot read bundled rootfs.7z: " + missing.getMessage());
+        }
+        io.twoyi.utils.RomManager.RomInfo info = io.twoyi.utils.RomManager.getRomInfoFromAssets(app);
+        boolean parsed = info != null && info.code > 0 && info.version != null;
+        failures += expect(parsed, lines, "bundled rom.ini describes the ROM",
+                "bundled rom.ini is missing or unreadable");
+        if (parsed) lines.add("info rom version " + info.version + " code " + info.code);
         return failures;
     }
 
