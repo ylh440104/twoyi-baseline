@@ -335,7 +335,8 @@ public class SettingsActivity extends AppCompatActivity {
                             GuestInstanceRegistry registry = GuestInstanceRegistry.load(
                                     GuestInstanceRegistry.defaultPath(app.getDataDir().toPath()));
                             List<String> removed = GuestInstanceManager.release(
-                                    app.getDataDir().toPath(), registry, instanceId, true);
+                                    app.getDataDir().toPath(), registry, instanceId, true,
+                                    base -> RomManager.abandonIncompleteInstall(base));
                             return app.getString(R.string.guest_instance_released,
                                     instanceId, removed.size());
                         }).done(message -> {

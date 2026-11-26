@@ -1,5 +1,6 @@
 package io.twoyi;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -56,6 +57,19 @@ public final class GuestInstanceManagerTest {
             if (!Files.isDirectory(data.resolve("slots"))) throw new AssertionError("slots container removed");
 
             if (reloaded.slotOf("twin-keep") != 0) throw new AssertionError("kept instance moved");
+
+            // The Android-side cleaner drops a stale transaction before wiping.
+            int cleanedSlot = GuestInstanceManager.create(data, reloaded, "twin-clean");
+            File slotBase = GuestSlotLayout.baseDirectory(data.toFile(), cleanedSlot);
+            Files.createDirectories(new File(slotBase, "rootfs/system").toPath());
+            Files.write(new File(slotBase, "rootfs/init").toPath(), new byte[]{1});
+            boolean[] cleaned = {false};
+            GuestInstanceManager.release(data, reloaded, "twin-clean", true,
+                    base -> cleaned[0] = base.equals(slotBase));
+            if (!cleaned[0]) throw new AssertionError("slot cleaner was not invoked");
+            if (Files.exists(new File(slotBase, "rootfs").toPath())) {
+                throw new AssertionError("slot rootfs survived a wiping release");
+            }
 
             // Unknown instances are a no-op and never wipe a guessed slot.
             if (!GuestInstanceManager.release(data, reloaded, "ghost", true).isEmpty()) {

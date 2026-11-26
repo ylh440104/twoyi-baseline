@@ -13,6 +13,11 @@ import io.twoyi.utils.GuestDataWipe;
  * whether a registered instance may start.
  */
 public final class GuestInstanceManager {
+    /** Android-only hook: dropping an incomplete ROM transaction before a wipe. */
+    public interface SlotCleaner {
+        void abandonTransaction(java.io.File slotBase) throws IOException;
+    }
+
     private GuestInstanceManager() {}
 
     /** Reserve a free slot for the instance and persist the registry. */
@@ -41,6 +46,12 @@ public final class GuestInstanceManager {
     public static java.util.List<String> release(
             Path dataDir, GuestInstanceRegistry registry, String instanceId, boolean wipeData)
             throws IOException {
+        return release(dataDir, registry, instanceId, wipeData, null);
+    }
+
+    public static java.util.List<String> release(
+            Path dataDir, GuestInstanceRegistry registry, String instanceId, boolean wipeData,
+            SlotCleaner cleaner) throws IOException {
         requireDataDir(dataDir);
         if (registry == null) throw new IllegalArgumentException("Instance registry is required");
         int slot;
@@ -57,7 +68,7 @@ public final class GuestInstanceManager {
         if (wipeData) {
             java.io.File base = GuestSlotLayout.baseDirectory(dataDir.toFile(), slot);
             // A cancelled install leaves a journal that would block the next one.
-            io.twoyi.utils.RomManager.abandonIncompleteInstall(base);
+            if (cleaner != null) cleaner.abandonTransaction(base);
             removed = GuestDataWipe.wipe(dataDir, base.toPath().resolve("rootfs"));
         }
         registry.release(instanceId);
