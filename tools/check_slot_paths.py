@@ -67,6 +67,27 @@ def main() -> int:
     if "getSlotBaseDir" not in logs:
         problems.append("LogEvents no longer reads guest logs through the slot base")
 
+    # The app module compiles at Java 8 source level; newer APIs break the build
+    # only in the cloud. Catch them here.
+    newer_apis = [
+        (re.compile(r"\bFiles\.writeString\("), "Files.writeString needs Java 11"),
+        (re.compile(r"\bFiles\.readString\("), "Files.readString needs Java 11"),
+        (re.compile(r"\bList\.of\("), "List.of needs Java 9"),
+        (re.compile(r"\bMap\.of\("), "Map.of needs Java 9"),
+        (re.compile(r"\bSet\.of\("), "Set.of needs Java 9"),
+        (re.compile(r"(^|\s)var\s+\w+\s*="), "var needs Java 10"),
+        (re.compile(r"->\s*\{\s*\}"), None),
+    ]
+    for path in sorted(SOURCES.rglob("*.java")):
+        rel = path.relative_to(ROOT).as_posix()
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            stripped = line.strip()
+            if stripped.startswith("//") or stripped.startswith("*"):
+                continue
+            for pattern, message in newer_apis:
+                if message and pattern.search(line):
+                    problems.append(f"{rel}:{number}: {message}: {stripped}")
+
     if problems:
         print("\n".join(problems))
         print(f"FAIL: {len(problems)} guest path derivation problem(s)")

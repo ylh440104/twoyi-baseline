@@ -109,7 +109,7 @@ public final class GuestSelfCheck {
                 lines, "empty slot is reported as NO_ROM", "empty slot looked startable");
         Path rootfs = data.resolve("rootfs");
         Files.createDirectories(rootfs.resolve("system"));
-        Files.writeString(rootfs.resolve("init"), "x");
+        Files.write(rootfs.resolve("init"), new byte[]{1});
         failures += expect(GuestInstanceGate.evaluate(data.toFile(), registry, "gate-a")
                         == GuestInstanceGate.Decision.STARTABLE,
                 lines, "complete slot is startable", "complete slot refused");
@@ -121,7 +121,7 @@ public final class GuestSelfCheck {
         Path data = work.resolve("wipe");
         Path slotRootfs = data.resolve(GuestSlotLayout.SLOT_DIRECTORY).resolve("1").resolve("rootfs");
         Files.createDirectories(slotRootfs.resolve("system"));
-        Files.writeString(slotRootfs.resolve("init"), "x");
+        Files.write(slotRootfs.resolve("init"), new byte[]{1});
         List<String> removed = GuestDataWipe.wipe(data, slotRootfs);
         failures += expect(removed.contains("rootfs") && !Files.exists(slotRootfs), lines,
                 "nested slot rootfs can be wiped", "nested rootfs survived: " + removed);
@@ -148,7 +148,7 @@ public final class GuestSelfCheck {
 
     private static void deleteTree(Path root) throws IOException {
         if (!Files.exists(root)) return;
-        try (var walk = Files.walk(root)) {
+        try (java.util.stream.Stream<Path> walk = Files.walk(root)) {
             walk.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
                 try {
                     Files.deleteIfExists(path);
