@@ -15,13 +15,43 @@ import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.DataIterator;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionIterator;
+import ghidra.program.model.lang.Instruction;
+import ghidra.program.model.lang.InstructionIterator;
 import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.ReferenceIterator;
+import ghidra.program.model.symbol.Symbol;
 
 import java.io.FileWriter;
 import java.io.PrintWriter;
 
 public class ExportDecompiled extends GhidraScript {
+
+    /** True when the function mentions any of the filtered external symbols. */
+    private boolean matchesFilter(Function function, String[] wanted) {
+        if (wanted.length == 0) {
+            return true;
+        }
+        InstructionIterator instructions = currentProgram.getListing()
+                .getInstructions(function.getBody(), true);
+        while (instructions.hasNext()) {
+            Instruction instruction = instructions.next();
+            for (int index = 0; index < instruction.getNumOperands(); index++) {
+                for (Reference reference : instruction.getOperandReferences(index)) {
+                    Symbol symbol = currentProgram.getSymbolTable()
+                            .getPrimarySymbol(reference.getToAddress());
+                    if (symbol == null) {
+                        continue;
+                    }
+                    for (String name : wanted) {
+                        if (symbol.getName().contains(name)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
 
     @Override
     public void run() throws Exception {
@@ -78,10 +108,26 @@ public class ExportDecompiled extends GhidraScript {
             }
             out.println();
 
+            String filterSpec = System.getenv("DECOMP_FILTER");
+            String[] wanted = filterSpec == null || filterSpec.isEmpty()
+                    ? new String[0] : filterSpec.split(",");
+            int limit = 200;
+            String limitSpec = System.getenv("DECOMP_MAX");
+            if (limitSpec != null && !limitSpec.isEmpty()) {
+                limit = Integer.parseInt(limitSpec.trim());
+            }
+            out.println("// filter: " + (wanted.length == 0 ? "(none)" : String.join(",", wanted))
+                    + " limit=" + limit);
+
             out.println("// ---------- decompiled functions ----------");
             FunctionIterator decompileTargets = currentProgram.getFunctionManager().getFunctions(true);
-            while (decompileTargets.hasNext() && !monitor.isCancelled()) {
+            int emitted = 0;
+            while (decompileTargets.hasNext() && !monitor.isCancelled() && emitted < limit) {
                 Function function = decompileTargets.next();
+                if (!matchesFilter(function, wanted)) {
+                    continue;
+                }
+                emitted++;
                 DecompileResults results = decompiler.decompileFunction(function, 60, monitor);
                 out.println("// ==== " + function.getName() + " @ " + function.getEntryPoint());
                 if (results != null && results.decompileCompleted()) {

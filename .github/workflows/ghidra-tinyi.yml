@@ -1,0 +1,84 @@
+name: Decompile the host side of the broker
+
+# libtwoyi.so is 9.8 MB with one exported symbol, so a full decompile is not
+# useful. It imports prctl/socketpair/sendmsg/recvmsg and issues no raw syscalls,
+# which is the profile of a seccomp user-notify broker. This job decompiles only
+# the functions that touch those imports.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/ghidra-tinyi.yml'
+      - 'tools/ghidra/ExportDecompiled.java'
+
+permissions:
+  contents: read
+
+jobs:
+  decompile:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Download and verify the APK
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/twoyi.apk" \
+            https://dl.twoyi.ai/twoyi_0.7.5-11131322.apk
+          echo "86ed3afaa447104f131d906c42ed8a07e207959c7869fda54bd245f62db14f4e  $RUNNER_TEMP/twoyi.apk" \
+            | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/libs"
+          unzip -o -j "$RUNNER_TEMP/twoyi.apk" 'lib/arm64-v8a/libtwoyi.so' -d "$RUNNER_TEMP/libs" >/dev/null
+          ls -l "$RUNNER_TEMP/libs"
+      - name: Fetch Ghidra
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 -o "$RUNNER_TEMP/ghidra.zip" \
+            https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_11.0.3_build/ghidra_11.0.3_PUBLIC_20240410.zip
+          unzip -q "$RUNNER_TEMP/ghidra.zip" -d "$RUNNER_TEMP/ghidra"
+      - name: Run filtered headless analysis
+        run: |
+          set -euo pipefail
+          headless=$(find "$RUNNER_TEMP/ghidra" -maxdepth 4 -type f -name analyzeHeadless | head -1)
+          test -n "$headless"
+          export DECOMP_OUT="$RUNNER_TEMP/tinyi-broker.txt"
+          export DECOMP_FILTER="prctl,socketpair,recvmsg,sendmsg,ioctl,JNI_OnLoad"
+          export DECOMP_MAX="120"
+          project="$RUNNER_TEMP/ghidra-project"
+          mkdir -p "$project"
+          timeout 8000 "$headless" "$project" tinyi -import "$RUNNER_TEMP/libs/libtwoyi.so" \
+            -scriptPath "$GITHUB_WORKSPACE/tools/ghidra" \
+            -postScript ExportDecompiled.java -deleteProject \
+            > "$RUNNER_TEMP/ghidra.log" 2>&1 || echo "headless exited $?"
+          tail -20 "$RUNNER_TEMP/ghidra.log" || true
+          wc -l "$DECOMP_OUT" || true
+      - name: Keep the broker-relevant parts
+        run: |
+          set -euo pipefail
+          src="$RUNNER_TEMP/tinyi-broker.txt"
+          out="$RUNNER_TEMP/broker-focus.txt"
+          {
+            echo '# strings with cross references'
+            grep -n '^// "' "$src" | head -80 || true
+            echo
+            echo '# functions that mention seccomp or the broker'
+            grep -n -A30 'SECCOMP\\|seccomp\\|user_notif\\|notify' "$src" | head -300 || true
+          } > "$out"
+          head -120 "$out"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tinyi-broker
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/tinyi-broker.txt
+            ${{ runner.temp }}/broker-focus.txt
+            ${{ runner.temp }}/ghidra.log
