@@ -17,4 +17,6 @@
     <string name="guest_phase_starting">启动中</string>
     <string name="guest_phase_running">运行中</string>
     <string name="guest_phase_failed">运行失败</string>
+    <string name="guest_wipe_confirm_message">将清除两仪内部的所有数据，此操作不可恢复。</string>
+    <string name="guest_wipe_complete">两仪内部数据已清除，请重新打开两仪以重新安装系统。</string>
 </resources>

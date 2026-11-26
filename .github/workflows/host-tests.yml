@@ -84,6 +84,11 @@ jobs:
           javac -d "$RUNNER_TEMP/endpoint-tests" app/src/main/java/io/twoyi/GuestEndpoints.java tools/GuestEndpointsTest.java
           java -cp "$RUNNER_TEMP/endpoint-tests" io.twoyi.GuestEndpointsTest
       - name: Verify guest slot isolation
+      - name: Verify wipe-all-data stays inside the guest data directory
+        run: |
+          mkdir -p "$RUNNER_TEMP/wipe-tests"
+          javac -encoding UTF-8 -d "$RUNNER_TEMP/wipe-tests" app/src/main/java/io/twoyi/utils/GuestDataWipe.java tools/GuestDataWipeTest.java
+          java -cp "$RUNNER_TEMP/wipe-tests" io.twoyi.utils.GuestDataWipeTest
         run: |
           mkdir -p "$RUNNER_TEMP/slot-tests"
           javac -d "$RUNNER_TEMP/slot-tests" app/src/main/java/io/twoyi/GuestEndpoints.java app/src/main/java/io/twoyi/GuestSlot.java tools/GuestSlotTest.java

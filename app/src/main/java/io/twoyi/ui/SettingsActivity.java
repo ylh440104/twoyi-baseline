@@ -38,10 +38,13 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
+import java.nio.file.Path;
 
 import io.twoyi.R;
+import io.twoyi.RomPreparation;
 import io.twoyi.TwoyiStatusManager;
 import io.twoyi.utils.AppKV;
+import io.twoyi.utils.GuestDataWipe;
 import io.twoyi.utils.LogEvents;
 import io.twoyi.utils.RomManager;
 import io.twoyi.utils.UIHelper;
@@ -191,6 +194,22 @@ public class SettingsActivity extends AppCompatActivity {
                 return true;
             });
 
+            Preference wipeAll = findPreference(R.string.settings_key_wipe_all_data);
+            wipeAll.setOnPreferenceClickListener(preference -> {
+                Activity activity = getActivity();
+                if (activity == null) return false;
+                UIHelper.getDialogBuilder(activity)
+                        .setTitle(android.R.string.dialog_alert_title)
+                        .setMessage(R.string.guest_wipe_confirm_message)
+                        .setPositiveButton(R.string.i_confirm_it, (dialog, which) -> {
+                            dialog.dismiss();
+                            wipeGuestData(activity, wipeAll);
+                        })
+                        .setNegativeButton(android.R.string.cancel, (dialog, which) -> dialog.dismiss())
+                        .show();
+                return true;
+            });
+
             factoryReset.setOnPreferenceClickListener(preference -> {
                 UIHelper.getDialogBuilder(getActivity())
                         .setTitle(android.R.string.dialog_alert_title)
@@ -252,6 +271,35 @@ public class SettingsActivity extends AppCompatActivity {
             });
         }
 
+
+        private void wipeGuestData(Activity activity, Preference preference) {
+            preference.setEnabled(false);
+            Context app = activity.getApplicationContext();
+            UIHelper.defer().when(() -> {
+                if (TwoyiStatusManager.getInstance().isStarted() || RomPreparation.isExtracting()) {
+                    throw new IllegalStateException(app.getString(R.string.guest_maintenance_busy));
+                }
+                java.io.File dataDir = app.getDataDir();
+                return GuestDataWipe.wipe(dataDir.toPath(), dataDir.toPath().resolve("rootfs"));
+            }).done(removed -> {
+                preference.setEnabled(true);
+                activity.runOnUiThread(() -> {
+                    if (activity.isFinishing() || activity.isDestroyed()) return;
+                    Toast.makeText(activity, R.string.guest_wipe_complete, Toast.LENGTH_LONG).show();
+                    // Recreating the process clears the process-wide guest singletons.
+                    activity.finish();
+                    new Handler(Looper.getMainLooper()).postDelayed(
+                            () -> android.os.Process.killProcess(android.os.Process.myPid()), 800);
+                });
+            }).fail(failure -> {
+                preference.setEnabled(true);
+                activity.runOnUiThread(() -> {
+                    if (activity.isFinishing() || activity.isDestroyed()) return;
+                    Toast.makeText(activity, activity.getString(R.string.install_failed_reason,
+                            failure.getMessage()), Toast.LENGTH_LONG).show();
+                });
+            });
+        }
 
         @Override
         public void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {

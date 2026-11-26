@@ -19,7 +19,7 @@ final class RomPreparation {
     private static CompletableFuture<Void> preparation;
     private static volatile boolean extracting;
 
-    static boolean isExtracting() { return extracting; }
+    public static boolean isExtracting() { return extracting; }
 
     static synchronized CompletableFuture<Void> retry(Context context) {
         if (preparation != null && preparation.isCompletedExceptionally()) {
