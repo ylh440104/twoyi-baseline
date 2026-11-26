@@ -116,6 +116,14 @@
 
 - ARM64 生命周期用例现通过正式安装器依次导入单 APK、同签名的 base 与 feature 分包组合，并检查损坏 APK 的失败清理。Actions 生成两份 API 27 测试 APK 并核对签名和打包后的哈希。实际分包安装待 ARM64 设备执行。
 
+## 实例目录隔离
+
+- `GuestSlotLayout` 决定每个槽的根目录：0 槽继续使用应用数据目录（已安装的旧版本仍可启动），1…3 槽位于 `data/slots/<n>`。
+- 槽位不能共享一个 rootfs：旧版输入设备就落在 `rootfs/dev/input`，两个在跑的来宾会写同一批路径。因此额外槽必须各自安装一份 ROM，`isReady` / `requireReady` 会检查 `rootfs/init` 是文件且 `rootfs/system` 是目录，缺一就拒绝启动。
+- `GuestSlot.forDataDir` / `GuestSlot.legacy` 把槽位目录解析统一走布局，避免调用方各自拼路径。
+- Actions 全部通过，含 `PASS: slot layout keeps slot 0 legacy and requires a complete ROM per slot`，运行 https://github.com/ylh440104/twoyi-baseline/actions/runs/45754470075 。APK 构建同批成功。
+- 仍未实现：按槽安装 ROM、按槽清除数据、多进程服务承载、设备侧多实例并存验收。
+
 ## 实例端点隔离
 
 - `GuestEndpoints.forSlot(slot, dataDir)`：0 槽保持 `TWOYI_SOCK` / `twoyi_hal` 原名，1…3 槽分别为 `TWOYI_SOCK1..3` / `twoyi_hal1..3`。同一设备上的抽象 socket 名不能重复，这是多实例并存的前提。
