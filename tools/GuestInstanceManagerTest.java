@@ -65,7 +65,7 @@ public final class GuestInstanceManagerTest {
             Files.write(new File(slotBase, "rootfs/init").toPath(), new byte[]{1});
             boolean[] cleaned = {false};
             GuestInstanceManager.release(data, reloaded, "twin-clean", true,
-                    base -> cleaned[0] = base.equals(slotBase));
+                    slotDir -> cleaned[0] = slotDir.equals(slotBase));
             if (!cleaned[0]) throw new AssertionError("slot cleaner was not invoked");
             if (Files.exists(new File(slotBase, "rootfs").toPath())) {
                 throw new AssertionError("slot rootfs survived a wiping release");
