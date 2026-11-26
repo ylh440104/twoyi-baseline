@@ -11,7 +11,6 @@ import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.address.Address;
-import ghidra.program.model.data.DataUtilities;
 import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.DataIterator;
 import ghidra.program.model.listing.Function;
@@ -55,9 +54,6 @@ public class ExportDecompiled extends GhidraScript {
             DataIterator data = currentProgram.getListing().getDefinedData(true);
             while (data.hasNext() && !monitor.isCancelled()) {
                 Data item = data.next();
-                if (!DataUtilities.isValidDataType(item) || item.getValue() == null) {
-                    continue;
-                }
                 if (!(item.getValue() instanceof String)) {
                     continue;
                 }
