@@ -90,11 +90,13 @@ jobs:
             echo '# section headers'
             readelf -W -S "$so" | head -40 || true
             echo
-            echo '# encoded data ranges used by the loader'
+            echo '# relocations that define the main GOT slot'
             python3 "$GITHUB_WORKSPACE/tools/ghidra/dump_ranges.py" "$so" \
-              --ghidra-base=0x100000 \
-              0x12e0d0-0x12e1a0 0x12e340-0x12e420 0x12e590-0x12e700 \
-              0x12e900-0x12ed00 0x12ef00-0x12f100 || true
+              --ghidra-base=0x100000 0x11370-0x11830 || true
+            echo
+            echo '# encoded data ranges used by the loader (whole .data window)'
+            python3 "$GITHUB_WORKSPACE/tools/ghidra/dump_ranges.py" "$so" \
+              --ghidra-base=0x100000 0x12e000-0x12f300 || true
           } > "$out"
           head -80 "$out"
       - uses: actions/upload-artifact@v4
