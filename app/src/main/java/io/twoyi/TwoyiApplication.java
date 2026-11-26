@@ -44,7 +44,12 @@ public class TwoyiApplication extends Application {
         // First statement: capture a crash that happens before any UI exists.
         CrashDiary.install(base);
 
-        RomManager.ensureBootFiles(base);
+        try {
+            RomManager.ensureBootFiles(base);
+        } catch (RuntimeException unready) {
+            android.util.Log.e("TwoyiApplication", "boot files could not be prepared", unready);
+            CrashDiary.record(this, Thread.currentThread(), unready);
+        }
         startGuestEndpoints(base);
     }
 
@@ -79,10 +84,16 @@ public class TwoyiApplication extends Application {
     public void onCreate() {
         super.onCreate();
 
-        AppCenter.start(this, "6223c2b1-30ab-4293-8456-ac575420774e",
-                Analytics.class, Crashes.class);
         if (BuildConfig.DEBUG) {
-            AppCenter.setEnabled(false);
+            // Debug builds keep their diagnostics on the device instead of the
+            // vendor service, which also removes a launch-time failure source.
+            return;
+        }
+        try {
+            AppCenter.start(this, "6223c2b1-30ab-4293-8456-ac575420774e",
+                    Analytics.class, Crashes.class);
+        } catch (RuntimeException telemetry) {
+            CrashDiary.record(this, Thread.currentThread(), telemetry);
         }
     }
 

@@ -111,6 +111,7 @@ public class SettingsActivity extends AppCompatActivity {
         private final Runnable refreshGuestPhase = new Runnable() {
             @Override public void run() {
                 Preference status = findPreference("guest_instance_status");
+                if (status == null) return;
                 switch (TwoyiStatusManager.getInstance().phase()) {
                     case STARTING: status.setSummary(R.string.guest_phase_starting); break;
                     case RUNNING: status.setSummary(R.string.guest_phase_running); break;
@@ -134,7 +135,7 @@ public class SettingsActivity extends AppCompatActivity {
         private void refreshInstances() {
             Preference instances = findPreference("guest_instances");
             Context app = getActivity() == null ? null : getActivity().getApplicationContext();
-            if (app == null) return;
+            if (app == null || instances == null) return;
             UIHelper.defer().when(() -> {
                 GuestInstanceRegistry registry = GuestInstanceRegistry.load(
                         GuestInstanceRegistry.defaultPath(app.getDataDir().toPath()));
