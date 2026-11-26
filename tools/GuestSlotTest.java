@@ -17,6 +17,14 @@ public final class GuestSlotTest {
         rejects(() -> GuestSlot.requireDistinct(first, GuestSlot.of(0, "other", new File("/data/data/io.twoyi/slots/9"))));
         rejects(() -> GuestSlot.requireDistinct(first, GuestSlot.of(1, "other", new File("/data/data/io.twoyi/slots/0"))));
         rejects(() -> GuestSlot.requireDistinct(first, GuestSlot.of(0, "twin-a", new File("/data/data/io.twoyi/slots/0"))));
+        // Distinct slots sharing one guest directory must be rejected even though
+        // their abstract socket names differ by slot index.
+        rejects(() -> GuestSlot.requireDistinct(
+                GuestSlot.of(0, "a", new File("/data/data/io.twoyi/slots/shared")),
+                GuestSlot.of(2, "b", new File("/data/data/io.twoyi/slots/shared"))));
+        GuestSlot.requireDistinct(
+                GuestSlot.of(0, "a", new File("/data/data/io.twoyi/slots/a")),
+                GuestSlot.of(2, "b", new File("/data/data/io.twoyi/slots/b")));
         System.out.println("PASS: slot paths, process names and endpoint isolation");
     }
 

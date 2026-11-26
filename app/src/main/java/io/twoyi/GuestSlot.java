@@ -54,9 +54,17 @@ public final class GuestSlot {
                 if (slots[i].getIndex() == slots[j].getIndex()) {
                     throw new IllegalArgumentException("Duplicate guest slot index " + slots[i].getIndex());
                 }
-                if (slots[i].getEndpoints().equals(slots[j].getEndpoints())) {
-                    throw new IllegalArgumentException("Guest slots share endpoints: " + slots[i].getIndex()
+                // Endpoint equality is not enough: two slots legitimately differ only
+                // in abstract socket names while still sharing one guest directory.
+                if (slots[i].getEndpoints().getRootfsDir().equals(slots[j].getEndpoints().getRootfsDir())) {
+                    throw new IllegalArgumentException("Guest slots share a rootfs: " + slots[i].getIndex()
                             + " and " + slots[j].getIndex());
+                }
+                if (slots[i].getEndpoints().getLogFile().equals(slots[j].getEndpoints().getLogFile())
+                        || slots[i].getEndpoints().getTouchSocketPath()
+                                .equals(slots[j].getEndpoints().getTouchSocketPath())) {
+                    throw new IllegalArgumentException("Guest slots share guest files: "
+                            + slots[i].getIndex() + " and " + slots[j].getIndex());
                 }
             }
         }
