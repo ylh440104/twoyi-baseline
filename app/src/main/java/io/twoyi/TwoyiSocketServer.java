@@ -68,6 +68,7 @@ public class TwoyiSocketServer {
     private boolean listening;
     private volatile String controlSocketName = GuestEndpoints.DEFAULT_CONTROL_SOCKET;
     private boolean configured;
+    private final ControlSocketRetry retry = new ControlSocketRetry();
 
     private TwoyiSocketServer(Context context) {
         mContext = context;
@@ -151,7 +152,11 @@ public class TwoyiSocketServer {
                 handleSocket(server.accept());
             }
         } catch (IOException e) {
-            Log.e(TAG, "start socket failed", e);
+            if (ControlSocketRetry.looksLikeAddressInUse(e.getMessage())) {
+                Log.e(TAG, "control socket name is already bound: " + controlSocketName, e);
+            } else {
+                Log.e(TAG, "start socket failed", e);
+            }
 
         } finally {
             synchronized (readiness) {
@@ -161,8 +166,17 @@ public class TwoyiSocketServer {
             IOUtils.closeSilently(socket);
             mStarted.set(false);
         }
+        // The control name is shared with every guest process, so a collision is
+        // terminal-ish: report it instead of spinning forever. Only transient
+        // failures get another attempt.
         if (!Thread.currentThread().isInterrupted()) {
-            SystemClock.sleep(1000);
+            long delay = retry.nextDelayMillis();
+            if (delay < 0) {
+                Log.w(TAG, "control socket unavailable after " + retry.attempts()
+                        + " attempts; another guest may own " + controlSocketName);
+                return;
+            }
+            SystemClock.sleep(delay);
             start();
         }
     }

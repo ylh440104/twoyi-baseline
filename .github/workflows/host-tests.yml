@@ -37,6 +37,7 @@ jobs:
             app/src/main/java/io/twoyi/GuestInstanceGate.java \
             app/src/main/java/io/twoyi/GuestInstanceManager.java \
             app/src/main/java/io/twoyi/GuestStartupSlot.java \
+            app/src/main/java/io/twoyi/ControlSocketRetry.java \
             app/src/main/java/io/twoyi/HalConnectionRegistry.java \
             app/src/main/java/io/twoyi/WindowOwner.java \
             app/src/main/java/io/twoyi/utils/RomInstallTransaction.java \
@@ -88,6 +89,7 @@ jobs:
         app/src/main/java/io/twoyi/GuestInstanceGate.java
         app/src/main/java/io/twoyi/GuestInstanceManager.java
         app/src/main/java/io/twoyi/GuestStartupSlot.java
+        app/src/main/java/io/twoyi/ControlSocketRetry.java
         app/src/main/java/io/twoyi/utils/GuestDataWipe.java
     steps:
       - uses: actions/checkout@v4
@@ -146,6 +148,11 @@ jobs:
           java -cp "$RUNNER_TEMP/service-slot-tests" io.twoyi.GuestServiceSlotTest
       - name: Guard guest paths against data-directory derivation
         run: python3 tools/check_slot_paths.py
+      - name: Verify bounded control socket retries
+        run: |
+          mkdir -p "$RUNNER_TEMP/control-retry-tests"
+          javac -d "$RUNNER_TEMP/control-retry-tests" app/src/main/java/io/twoyi/ControlSocketRetry.java tools/ControlSocketRetryTest.java
+          java -cp "$RUNNER_TEMP/control-retry-tests" io.twoyi.ControlSocketRetryTest
       - name: Verify startup slot resolution
         run: |
           mkdir -p "$RUNNER_TEMP/startup-slot-tests"

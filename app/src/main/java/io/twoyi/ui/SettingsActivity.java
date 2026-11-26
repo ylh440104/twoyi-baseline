@@ -519,7 +519,8 @@ public class SettingsActivity extends AppCompatActivity {
             preference.setEnabled(false);
             Context app = activity.getApplicationContext();
             UIHelper.defer().when(() -> {
-                if (TwoyiStatusManager.getInstance().isStarted() || RomPreparation.isExtracting()) {
+                if (TwoyiStatusManager.getInstance().phase() != TwoyiStatusManager.Phase.STOPPED
+                        || RomPreparation.isExtracting()) {
                     throw new IllegalStateException(app.getString(R.string.guest_maintenance_busy));
                 }
                 java.io.File slotBase = io.twoyi.utils.RomManager.getSlotBaseDir(app);

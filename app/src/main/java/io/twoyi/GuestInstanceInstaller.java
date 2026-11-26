@@ -25,7 +25,8 @@ public final class GuestInstanceInstaller {
      */
     public static boolean installBundledRom(Context context, String instanceId) throws IOException {
         Context app = context.getApplicationContext();
-        if (TwoyiStatusManager.getInstance().isStarted()) {
+        // A guest that is starting but not yet started would also race the slot.
+        if (TwoyiStatusManager.getInstance().phase() != TwoyiStatusManager.Phase.STOPPED) {
             throw new IllegalStateException(app.getString(R.string.guest_maintenance_busy));
         }
         Path dataDir = app.getDataDir().toPath();
