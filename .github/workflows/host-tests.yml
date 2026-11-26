@@ -34,6 +34,7 @@ jobs:
             app/src/main/java/io/twoyi/GuestSlotLayout.java \
             app/src/main/java/io/twoyi/GuestSlotSelection.java \
             app/src/main/java/io/twoyi/GuestInstanceRegistry.java \
+            app/src/main/java/io/twoyi/GuestInstanceGate.java \
             app/src/main/java/io/twoyi/HalConnectionRegistry.java \
             app/src/main/java/io/twoyi/WindowOwner.java \
             app/src/main/java/io/twoyi/utils/RomInstallTransaction.java \
@@ -82,6 +83,7 @@ jobs:
         app/src/main/java/io/twoyi/GuestSlotLayout.java
         app/src/main/java/io/twoyi/GuestSlotSelection.java
         app/src/main/java/io/twoyi/GuestInstanceRegistry.java
+        app/src/main/java/io/twoyi/GuestInstanceGate.java
     steps:
       - uses: actions/checkout@v4
         with:
@@ -137,6 +139,11 @@ jobs:
           mkdir -p "$RUNNER_TEMP/service-slot-tests"
           javac -d "$RUNNER_TEMP/service-slot-tests" $SLOT_SOURCES tools/GuestServiceSlotTest.java
           java -cp "$RUNNER_TEMP/service-slot-tests" io.twoyi.GuestServiceSlotTest
+      - name: Verify the instance start gate
+        run: |
+          mkdir -p "$RUNNER_TEMP/instance-gate-tests"
+          javac -d "$RUNNER_TEMP/instance-gate-tests" $SLOT_SOURCES tools/GuestInstanceGateTest.java
+          java -cp "$RUNNER_TEMP/instance-gate-tests" io.twoyi.GuestInstanceGateTest
       - name: Verify guest instance registry
         run: |
           mkdir -p "$RUNNER_TEMP/instance-registry-tests"
