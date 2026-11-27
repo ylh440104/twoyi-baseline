@@ -139,6 +139,19 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段三首轮：Compose 界面成型（构建通过）
+
+- 把 `TwinActivity.kt` 从「一张占位卡片」扩成**四个界面**：
+  1. **两步入场**（先建设备、再连模型），完成状态各自有「已完成」文案；
+  2. **Twin** 页：空态提示 + 消息列表 + 输入区（未就绪时输入被禁用并给出原因）；
+  3. **Phone** 页：无设备空态 + 创建入口；
+  4. **模型连接**页：API 地址 / Key / 模型三项 + 「获取模型」「连接」。
+- 文案取自最新版资源表的同名键（`twin_boot_*`、`twin_phone_*`、`twin_provider_*`、`twin_agent_*`），
+  中英各 43 条；新增 `docs/TWIN_UI_MAP.md`：把 285 条 `twin_*` 按前缀分成 64 组，作为后续界面复刻的蓝图。
+- CI 运行 45916035367 构建通过（先前 45915427818 因 `foundation.layout.weight` 的非法 import 失败，已删）。
+- 明确边界：**界面目前不驱动真实来宾**——`Twin` 页的回复是占位串（"The Twin connection is unavailable."），
+  创建设备/连接模型只改本地状态，不落盘。这些要等运行时接上。
+
 ## 阶段一：JNI 注册表的静态恢复（本轮，负结论）
 
 - 目标：拿到 `nativeResolve` 的函数地址，进而读 988 字节布局。
