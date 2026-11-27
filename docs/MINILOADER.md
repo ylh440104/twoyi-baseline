@@ -108,4 +108,25 @@ Termux 本身就是 Android + bionic + aarch64，装了 Rust 1.100 后可在**�
 | 真实来宾 `rootfs/init` | `(static)` |
 | `/system/bin/linker64` | `(static)` |
 
-仍未实现：**真正加载这些库并合并它们的符号表**（现在只是如实报告会阻塞）。
+### 真正加载依赖库（本轮）
+
+`SymbolTable` 现在会**打开**这些库并保持句柄（关掉会让表里的地址全部失效）：
+
+- `open_libraries(sonames)`：`dlopen(RTLD_NOW | RTLD_LOCAL)`；`RTLD_NOW` 让缺失依赖在这里
+  就暴露，而不是在来宾代码里崩；
+- `resolve_names(names)`：**先查已打开的库，再查全局作用域**；返回仍解析不了的名单；
+- `preflight` 的 `NeedsLibraries` 只列出**没被打开的**库——打开了就不算阻塞。
+
+真机（bionic aarch64）实测，`--check` 现在对真实系统二进制：
+
+| 目标 | 依赖 | 结果 |
+|---|---|---|
+| `/system/bin/toybox` | 8 个（libcrypto/libz/liblog/libprocessgroup/libselinux/libc/libm/libdl） | `libraries opened 8/8`、`imports unresolved 0`、**loadable** |
+| `/system/bin/sh` | 1 个 | `1/1`、`unresolved 0`、**loadable** |
+| `/system/bin/app_process64` | 13 个（含 libandroid_runtime/libbinder/libhidlbase/libnativeloader/libsigchain/libwilhelm/libc++ …） | `13/13`、`unresolved 0`、**loadable** |
+| 真实来宾 `rootfs/init` | 无（静态） | **loadable** |
+
+也就是说：**313 个导入的真实 Android 二进制，我们的 loader 能把它们全部解析出来**。
+
+仍缺：这些库是交给系统的 `dlopen` 打开的，我们**没有实现自己的 `DT_NEEDED` 映射器**
+（真机上 bionic 的 linker 替我们做了这件事）；以及 TLS、`dlopen` 语义、跳转执行。

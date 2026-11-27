@@ -88,6 +88,71 @@ fn elf_with_import(import_name: &str, slot_vaddr: u64) -> Vec<u8> {
     out
 }
 
+/// ELF with a `PT_DYNAMIC` naming `needed`, used to check the dependency blocker.
+fn elf_with_needed_for_bridge(needed: &[&str]) -> Vec<u8> {
+    let phoff = 64usize;
+    let phentsize = 56usize;
+    let phnum = 2usize;
+    let dynstr_offset = phoff + phentsize * phnum;
+
+    let mut table = vec![0u8];
+    let mut offsets = Vec::new();
+    for name in needed {
+        offsets.push(table.len() as u64);
+        table.extend_from_slice(name.as_bytes());
+        table.push(0);
+    }
+    let dynstr_size = table.len();
+    let dynamic_offset = dynstr_offset + dynstr_size;
+    let dynamic_size = (needed.len() + 3) * 16;
+    let total = dynamic_offset + dynamic_size;
+
+    let mut out = vec![0u8; total];
+    out[0..4].copy_from_slice(b"\x7fELF");
+    out[4] = 2;
+    out[5] = 1;
+    out[6] = 1;
+    out[0x12..0x14].copy_from_slice(&0xb7u16.to_le_bytes());
+    out[0x18..0x20].copy_from_slice(&0x2000u64.to_le_bytes());
+    out[0x20..0x28].copy_from_slice(&(phoff as u64).to_le_bytes());
+    out[0x36..0x38].copy_from_slice(&0x38u16.to_le_bytes());
+    out[0x38..0x3a].copy_from_slice(&(phnum as u16).to_le_bytes());
+
+    out[phoff..phoff + 4].copy_from_slice(&1u32.to_le_bytes());
+    out[phoff + 4..phoff + 8].copy_from_slice(&5u32.to_le_bytes());
+    out[phoff + 8..phoff + 16].copy_from_slice(&0u64.to_le_bytes());
+    out[phoff + 16..phoff + 24].copy_from_slice(&0x2000u64.to_le_bytes());
+    out[phoff + 32..phoff + 40].copy_from_slice(&(total as u64).to_le_bytes());
+    out[phoff + 40..phoff + 48].copy_from_slice(&(total as u64).to_le_bytes());
+    out[phoff + 48..phoff + 56].copy_from_slice(&PAGE.to_le_bytes());
+
+    let dyn_ph = phoff + phentsize;
+    out[dyn_ph..dyn_ph + 4].copy_from_slice(&2u32.to_le_bytes());
+    out[dyn_ph + 8..dyn_ph + 16].copy_from_slice(&(dynamic_offset as u64).to_le_bytes());
+    out[dyn_ph + 16..dyn_ph + 24]
+        .copy_from_slice(&(0x2000u64 + dynamic_offset as u64).to_le_bytes());
+    out[dyn_ph + 32..dyn_ph + 40].copy_from_slice(&(dynamic_size as u64).to_le_bytes());
+    out[dyn_ph + 40..dyn_ph + 48].copy_from_slice(&(dynamic_size as u64).to_le_bytes());
+
+    out[dynstr_offset..dynstr_offset + dynstr_size].copy_from_slice(&table);
+
+    let strtab_vaddr = 0x2000 + dynstr_offset as u64;
+    let mut at = dynamic_offset;
+    for offset in &offsets {
+        out[at..at + 8].copy_from_slice(&1u64.to_le_bytes());
+        out[at + 8..at + 16].copy_from_slice(&offset.to_le_bytes());
+        at += 16;
+    }
+    out[at..at + 8].copy_from_slice(&5u64.to_le_bytes());
+    out[at + 8..at + 16].copy_from_slice(&strtab_vaddr.to_le_bytes());
+    at += 16;
+    out[at..at + 8].copy_from_slice(&10u64.to_le_bytes());
+    out[at + 8..at + 16].copy_from_slice(&(dynstr_size as u64).to_le_bytes());
+    at += 16;
+    out[at..at + 8].copy_from_slice(&0u64.to_le_bytes());
+    out
+}
+
 #[test]
 fn the_table_refuses_empty_names_and_zero_addresses() {
     let mut table = SymbolTable::new();
@@ -173,4 +238,33 @@ fn without_a_bridge_the_slot_is_left_alone() {
         stored.iter().all(|byte| *byte == 0),
         "without a bridge the slot stays as the file had it"
     );
+}
+#[test]
+fn a_library_that_does_not_exist_is_reported_not_opened() {
+    let mut table = SymbolTable::new();
+    let opened = table.open_libraries(&["twoyi-definitely-not-a-library.so".to_string()]);
+    assert!(opened.is_empty());
+    assert!(!table.has_library("twoyi-definitely-not-a-library.so"));
+    assert_eq!(table.opened_libraries().count(), 0);
+}
+
+#[test]
+fn marked_libraries_satisfy_the_dependency_check() {
+    // The preflight blocks a dynamic image unless the bridge opened each dependency;
+    // a caller that supplies its own resolver marks them instead.
+    let bytes = elf_with_needed_for_bridge(&["libz.so", "libm.so"]);
+    let elf = Elf::parse(&bytes).expect("parse");
+
+    let mut table = SymbolTable::new();
+    let before = miniloader::preflight::preflight(&elf, &table, PAGE);
+    assert!(!before.is_loadable(), "unopened dependencies must block");
+
+    table.mark_opened("libz.so");
+    let partial = miniloader::preflight::preflight(&elf, &table, PAGE);
+    assert!(!partial.is_loadable(), "one dependency is still missing");
+
+    table.mark_opened("libm.so");
+    let after = miniloader::preflight::preflight(&elf, &table, PAGE);
+    assert!(after.is_loadable(), "all dependencies accounted for: {}", after.reason());
+    assert_eq!(after.needed, vec!["libz.so", "libm.so"]);
 }

@@ -151,6 +151,37 @@ fn main() {
         }
         let mut table = SymbolTable::new();
         table.from_current_process(&wanted.iter().map(String::as_str).collect::<Vec<&str>>());
+        // Open what the image depends on, then resolve its imports: without this a
+        // dynamic guest is reported as having hundreds of missing symbols.
+        if let Ok(needed) = miniloader::symbols::needed_libraries(&parsed) {
+            if !needed.is_empty() {
+                let opened = table.open_libraries(&needed);
+                let failed: Vec<&String> = needed
+                    .iter()
+                    .filter(|soname| !table.has_library(soname))
+                    .collect();
+                println!(
+                    "check: libraries opened {}/{}",
+                    opened.len(),
+                    needed.len()
+                );
+                if !failed.is_empty() {
+                    println!(
+                        "check: libraries unavailable {}",
+                        failed
+                            .iter()
+                            .map(|name| name.as_str())
+                            .collect::<Vec<&str>>()
+                            .join(" ")
+                    );
+                }
+                let imports: Vec<String> = miniloader::symbols::jump_slots(&parsed)
+                    .map(|slots| slots.into_iter().map(|slot| slot.symbol).collect())
+                    .unwrap_or_default();
+                let unresolved = table.resolve_names(&imports);
+                println!("check: imports unresolved {}", unresolved.len());
+            }
+        }
         let verdict = miniloader::preflight::preflight(&parsed, &table, page_size);
         println!(
             "check: {}",

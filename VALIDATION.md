@@ -139,6 +139,25 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段三十七：真正加载依赖库并合并符号（76 项，本机 bionic 实测）
+
+- `SymbolTable` 增加 `open_libraries()` / `resolve_names()` / `has_library()` / `mark_opened()`，
+  并**持有 dlopen 句柄**（Drop 时才关闭）——提前关掉会让表里的地址全部失效。
+  - `dlopen(RTLD_NOW | RTLD_LOCAL)`：`RTLD_NOW` 让缺失依赖当场暴露，而不是来宾跑到一半才崩；
+  - 解析顺序是**先已打开的库、再全局作用域**。
+- `preflight` 的 `NeedsLibraries` 只列**没被打开**的库，打开了就不阻塞。
+- CLI `--check` 先打开依赖、再解析导入，并打印 `libraries opened N/M`、`imports unresolved K`。
+- **本机 bionic 实测（真实系统二进制）**：
+  ```
+  /system/bin/toybox          libraries opened 8/8   imports unresolved 0   loadable
+  /system/bin/sh              libraries opened 1/1   imports unresolved 0   loadable
+  /system/bin/app_process64   libraries opened 13/13 imports unresolved 0   loadable
+  真实来宾 rootfs/init         needed=(static)                                loadable
+  ```
+  即 **313 个导入的真实 Android 二进制已被完整解析**。
+- 新增 2 项测试：不存在的库不会被记为已打开；`mark_opened` 逐个满足依赖检查前/中/后三种状态。
+- 仍未实现：**自己的 `DT_NEEDED` 映射器**（现在是借系统 `dlopen`）、TLS、`dlopen` 语义、跳转执行。
+
 ## 阶段三十六：`DT_NEEDED` 依赖清单（74 项，本机 bionic 实测）
 
 - 新增 `symbols::needed_libraries()`：解析 `PT_DYNAMIC` 的 `DT_NEEDED`/`DT_STRTAB`/`DT_STRSZ`，

@@ -141,10 +141,15 @@ pub fn preflight(elf: &Elf<'_>, bridge: &SymbolTable, page_size: u64) -> Preflig
             Vec::new()
         }
     };
-    if !needed.is_empty() {
-        blockers.push(Blocker::NeedsLibraries {
-            names: needed.clone(),
-        });
+    // A dependency only blocks when the bridge could not open it: opening the library
+    // is what makes its symbols resolvable, so an opened one is already handled.
+    let unopened: Vec<String> = needed
+        .iter()
+        .filter(|soname| !bridge.has_library(soname))
+        .cloned()
+        .collect();
+    if !unopened.is_empty() {
+        blockers.push(Blocker::NeedsLibraries { names: unopened });
     }
 
     let mut imports = Vec::new();

@@ -11,7 +11,8 @@
 //! can be filled from this process, from a static list, or by hand in a test. What
 //! the address *does* is the guest's business.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::{c_void, CString};
 
 /// Names the official loader is known to require (docs/LOADER_DECODE.md).
 ///
@@ -28,16 +29,131 @@ pub const KNOWN_REQUIRED: &[&str] = &[
     "dlclose",
 ];
 
-#[derive(Debug, Default, Clone)]
+/// A name → address table, plus the libraries it opened to fill itself.
+///
+/// The handles are kept so the libraries stay mapped: closing them would invalidate
+/// every address in the table, which is exactly the kind of bug that only shows up
+/// when a guest calls a resolved symbol minutes later.
 pub struct SymbolTable {
     entries: BTreeMap<String, u64>,
+    handles: Vec<*mut c_void>,
+    opened: BTreeSet<String>,
+}
+
+impl Default for SymbolTable {
+    fn default() -> Self {
+        SymbolTable::new()
+    }
+}
+
+impl Drop for SymbolTable {
+    fn drop(&mut self) {
+        for handle in self.handles.drain(..) {
+            unsafe {
+                libc::dlclose(handle);
+            }
+        }
+    }
 }
 
 impl SymbolTable {
     pub fn new() -> SymbolTable {
         SymbolTable {
             entries: BTreeMap::new(),
+            handles: Vec::new(),
+            opened: BTreeSet::new(),
         }
+    }
+
+    /// Which shared libraries have been opened for this table.
+    pub fn opened_libraries(&self) -> impl Iterator<Item = &String> {
+        self.opened.iter()
+    }
+
+    pub fn has_library(&self, soname: &str) -> bool {
+        self.opened.contains(soname)
+    }
+
+    /// Mark a soname as available without opening it, for callers that supply their
+    /// own resolver (and for tests).
+    pub fn mark_opened(&mut self, soname: &str) {
+        if !soname.is_empty() {
+            self.opened.insert(soname.to_string());
+        }
+    }
+
+    /**
+     * Open every `soname`, keeping the handles alive.
+     *
+     * @return the libraries that opened, in the order given
+     */
+    pub fn open_libraries(&mut self, sonames: &[String]) -> Vec<String> {
+        let mut opened = Vec::new();
+        for soname in sonames {
+            if self.opened.contains(soname) {
+                opened.push(soname.clone());
+                continue;
+            }
+            let name = match CString::new(soname.as_str()) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+            // RTLD_NOW resolves eagerly so a missing dependency surfaces here rather
+            // than as a crash inside guest code.
+            let handle = unsafe { libc::dlopen(name.as_ptr(), libc::RTLD_NOW | libc::RTLD_LOCAL) };
+            if handle.is_null() {
+                continue;
+            }
+            self.handles.push(handle);
+            self.opened.insert(soname.clone());
+            opened.push(soname.clone());
+        }
+        opened
+    }
+
+    /**
+     * Look up `names` in the opened libraries first, then in the global scope.
+     *
+     * A library local to this table is searched before the process, because a guest
+     * asking for `puts` should get the library's own definition when one was named.
+     *
+     * @return the names that could not be resolved
+     */
+    pub fn resolve_names(&mut self, names: &[String]) -> Vec<String> {
+        let mut missing = Vec::new();
+        for name in names {
+            if self.entries.contains_key(name) {
+                continue;
+            }
+            let cname = match CString::new(name.as_str()) {
+                Ok(value) => value,
+                Err(_) => {
+                    missing.push(name.clone());
+                    continue;
+                }
+            };
+            let mut found = None;
+            for handle in &self.handles {
+                let symbol = unsafe { libc::dlsym(*handle, cname.as_ptr()) };
+                if !symbol.is_null() {
+                    found = Some(symbol as usize as u64);
+                    break;
+                }
+            }
+            if found.is_none() {
+                let symbol = unsafe { libc::dlsym(libc::RTLD_DEFAULT, cname.as_ptr()) };
+                if !symbol.is_null() {
+                    found = Some(symbol as usize as u64);
+                }
+            }
+            match found {
+                Some(address) if address != 0 => {
+                    self.entries.insert(name.clone(), address);
+                }
+                _ => missing.push(name.clone()),
+            }
+        }
+        missing
     }
 
     /// Record where `name` lives. A zero address is refused: a guest calling zero
