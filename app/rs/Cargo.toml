@@ -10,6 +10,9 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
+# The loader core is shared rather than reimplemented: the guest image check the app
+# shows must be the same code the loader actually runs on.
+miniloader = { path = "../../tools/miniloader" }
 
 libc = "0.2.112"
 

@@ -425,6 +425,63 @@ pub extern "system" fn send_key_code(_env: JNIEnv, _clz: jclass, keycode: jint) 
     input::send_key_code(keycode);
 }
 
+/// Answer the guest image check for `path` as a one-line verdict.
+///
+/// This runs the very same `miniloader::preflight` the loader uses, so the app cannot
+/// drift from the loader: if the app says an image is loadable, the loader agrees.
+#[no_mangle]
+pub extern "system" fn guest_preflight(env: JNIEnv, _clz: jclass, path: jstring) -> jstring {
+    let text: String = match env.get_string(path) {
+        Ok(value) => value.into(),
+        Err(_) => return env.new_string("ERROR unreadable path").unwrap().into_raw(),
+    };
+    let verdict = match std::fs::read(&text) {
+        Ok(bytes) => {
+            let mut summary = String::new();
+            match miniloader::elf::Elf::parse(&bytes) {
+                Ok(elf) => {
+                    let mut bridge = miniloader::SymbolTable::new();
+                    if let Ok(needed) = miniloader::symbols::needed_libraries(&elf) {
+                        if !needed.is_empty() {
+                            let opened = bridge.open_libraries(&needed);
+                            if let Ok(slots) = miniloader::symbols::jump_slots(&elf) {
+                                let names: Vec<String> =
+                                    slots.iter().map(|slot| slot.symbol.clone()).collect();
+                                let missing = bridge.resolve_names(&names);
+                                summary.push_str(&format!(
+                                    " libraries={}/{} unresolved={}",
+                                    opened.len(),
+                                    needed.len(),
+                                    missing.len()
+                                ));
+                            }
+                        }
+                    }
+                    let report = miniloader::preflight::preflight(&elf, &bridge, 4096);
+                    format!(
+                        "{} segments={} imports={} relocations={}{}",
+                        if report.is_loadable() {
+                            "LOADABLE"
+                        } else {
+                            "BLOCKED"
+                        },
+                        report.segments,
+                        report.imports.len(),
+                        report.relative_relocations,
+                        summary
+                    )
+                }
+                Err(error) => format!("NOT_ELF {error:?}"),
+            }
+        }
+        Err(error) => format!("UNREADABLE {error}"),
+    };
+    match env.new_string(verdict) {
+        Ok(value) => value.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
 unsafe fn register_natives(jvm: &JavaVM, class_name: &str, methods: &[NativeMethod]) -> jint {
     let env: JNIEnv = jvm.get_env().unwrap();
     let jni_version = env.get_version().unwrap();
@@ -489,6 +546,19 @@ pub unsafe extern "system" fn JNI_OnLoad(jvm: JavaVM, _reserved: *mut c_void) ->
     ];
 
     let ret = register_natives(&jvm, class_name, jni_methods.as_ref());
+    // The guest image check lives on its own class: it is not a renderer method and the
+    // app must be able to call it without a surface.
+    let check_name: &str = "io/twoyi/GuestLoaderCheck";
+    let check_methods = [jni_method!(
+        nativePreflight,
+        guest_preflight,
+        "(Ljava/lang/String;)Ljava/lang/String;"
+    )];
+    let check_ret = register_natives(&jvm, check_name, check_methods.as_ref());
+    if check_ret == JNI_ERR {
+        error!("guest loader check registration failed");
+    }
     let _ = JVM_HANDLE.set(jvm);
+    let _ = check_ret;
     ret
 }

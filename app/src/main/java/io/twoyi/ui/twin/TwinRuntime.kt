@@ -4,6 +4,7 @@ package io.twoyi.ui.twin
 import android.content.Context
 import android.content.Intent
 import io.twoyi.GuestInstanceGate
+import io.twoyi.GuestLoaderCheck
 import io.twoyi.GuestPreflightNote
 import io.twoyi.GuestRomPreflight
 import io.twoyi.GuestSlotLayout
@@ -114,25 +115,27 @@ object TwinRuntime {
         } catch (unknown: IllegalArgumentException) {
             return unknown.message
         }
+        // Ask the loader itself first: it knows what the Java header check cannot —
+        // imports this device can serve, relocation counts, relocation format support.
+        val initPath = File(
+            GuestSlotLayout.baseDirectory(dataDir, registry.slotOf(id)),
+            "rootfs/init"
+        ).absolutePath
+        val loaderVerdict = GuestLoaderCheck.ask(initPath)
+        if (loaderVerdict != null) {
+            recordPreflight(loaderVerdict, initPath)
+            if (!GuestLoaderCheck.isLoadable(loaderVerdict)) {
+                return loaderVerdict
+            }
+            return startRegistered(id, registry)
+        }
+
         // Name the structural problem before anything tries to run the image.
         val verdict = GuestRomPreflight.check(
             File(GuestSlotLayout.baseDirectory(dataDir, registry.slotOf(id)), "rootfs/init"),
             isArm64Build()
         )
-        // Record the verdict next to the diagnostics: a boot that fails before any
-        // window exists otherwise leaves nothing to attach to a report.
-        runCatching {
-            GuestPreflightNote.record(
-                java.io.File(app.cacheDir, "preflight.txt"),
-                GuestPreflightNote.format(
-                    java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ", java.util.Locale.US)
-                        .format(java.util.Date()),
-                    verdict.name,
-                    "rootfs/init",
-                    null
-                )
-            )
-        }
+        recordPreflight(verdict.name, initPath)
         if (verdict != GuestRomPreflight.Verdict.OK) {
             return app.getString(
                 when (verdict) {
@@ -150,16 +153,40 @@ object TwinRuntime {
                 }
             )
         }
-        return try {
-            registry.activate(id)
-            registry.save()
-            app.startActivity(
-                Intent(app, Render2Activity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        return startRegistered(id, registry)
+    }
+
+    /** Activate the instance and open its window; the last step of a start. */
+    private fun startRegistered(id: String, registry: GuestInstanceRegistry): String? = try {
+        registry.activate(id)
+        registry.save()
+        app.startActivity(
+            Intent(app, Render2Activity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        )
+        null
+    } catch (failure: Exception) {
+        failure.message ?: failure.javaClass.simpleName
+    }
+
+    /**
+     * Keep the verdict next to the diagnostics.
+     *
+     * A start that fails before any window exists otherwise leaves nothing to attach to a
+     * report, so the reason has to be written down when it is found.
+     */
+    private fun recordPreflight(verdict: String, path: String) {
+        runCatching {
+            GuestPreflightNote.record(
+                java.io.File(app.cacheDir, "preflight.txt"),
+                GuestPreflightNote.format(
+                    java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ", java.util.Locale.US)
+                        .format(java.util.Date()),
+                    verdict,
+                    path,
+                    null
+                )
             )
-            null
-        } catch (failure: Exception) {
-            failure.message ?: failure.javaClass.simpleName
         }
     }
 

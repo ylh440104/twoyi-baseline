@@ -158,7 +158,10 @@ fn read_relocation_tables(data: &[u8]) -> RelocTables {
         let mut android_size = 0u64;
         for entry in 0..size / 16 {
             let at = offset + entry * 16;
-            let Some(tag) = read_u64(data, at) else { break };
+            let tag = match read_u64(data, at) {
+                Some(value) => value,
+                None => break,
+            };
             let value = read_u64(data, at + 8).unwrap_or(0);
             match tag {
                 0 => break,
@@ -284,7 +287,10 @@ impl<'a> Elf<'a> {
             let phoff = read_u64(data, 0x20).unwrap_or(0) as usize;
             for index in 0..phnum {
                 let base = phoff + index * phentsize as usize;
-                let Some(kind) = read_u32(data, base) else { break };
+                let kind = match read_u32(data, base) {
+                    Some(value) => value,
+                    None => break,
+                };
                 if kind != 7 {
                     continue;
                 }
