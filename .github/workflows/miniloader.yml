@@ -111,6 +111,7 @@ jobs:
           grep -q 'mapped\[0\] addr=0x' "$RUNNER_TEMP/map-aarch64.txt"
           grep -qE 'prot=(5|7)' "$RUNNER_TEMP/map-aarch64.txt"
           grep -q 'entry bytes: ' "$RUNNER_TEMP/map-aarch64.txt"
+          grep -q 'relocations: ' "$RUNNER_TEMP/map-aarch64.txt"
           if grep -q 'unreadable' "$RUNNER_TEMP/map-aarch64.txt"; then
             echo "::error::the mapped entry could not be read back"
             exit 1

@@ -87,6 +87,12 @@ fn main() {
                         index, segment.address, segment.file_len, segment.mem_len, segment.prot
                     );
                 }
+                println!(
+                    "relocations: {}",
+                    miniloader::reloc::relative_relocations(&parsed)
+                        .map(|list| list.len())
+                        .unwrap_or(0)
+                );
                 let entry = mapped.entry();
                 match mapped.read(entry, 4) {
                     Some(bytes) => println!(

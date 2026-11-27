@@ -12,6 +12,7 @@ pub mod executor;
 pub mod image;
 pub mod map;
 pub mod proto;
+pub mod reloc;
 pub mod resolver;
 pub mod stack;
 
@@ -21,5 +22,6 @@ pub use executor::{ExecError, MappedImage};
 pub use map::{plan, MapError, MappingPlan};
 pub use broker::{Broker, ChannelError, HandshakeClient};
 pub use proto::{PathError, ProtoError, Tbd1, Tbd1Reply, B1F2};
+pub use reloc::{Relative, RelocError};
 pub use resolver::{request_once, serve_once, Resolver, ResolverError};
 pub use stack::{build as build_stack, Auxv, StackError, StackImage};

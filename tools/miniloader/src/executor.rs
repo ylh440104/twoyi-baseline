@@ -13,10 +13,12 @@ use std::ffi::c_void;
 use crate::elf::Elf;
 use crate::image::ImageError;
 use crate::map::{plan, prot_for};
+use crate::reloc::{self, Relative};
 
 #[derive(Debug)]
 pub enum ExecError {
     Image(ImageError),
+    Reloc(crate::reloc::RelocError),
     Allocate { size: usize, errno: i32 },
     Protect { at: u64, len: usize, errno: i32 },
     ProtectedButEmpty,
@@ -38,6 +40,7 @@ impl std::fmt::Display for ExecError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ExecError::Image(error) => write!(formatter, "image: {error:?}"),
+            ExecError::Reloc(error) => write!(formatter, "relocation: {error:?}"),
             ExecError::Allocate { size, errno } => {
                 write!(formatter, "mmap of {size} bytes failed (errno {errno})")
             }
@@ -68,11 +71,26 @@ pub struct MappedSegment {
     pub file_len: u64,
     pub mem_len: u64,
     pub prot: u32,
+    offset: usize,
+    span_len: usize,
 }
 
 impl MappedImage {
     /// Map every `PT_LOAD` of `elf` and apply its protections.
     pub fn map(elf: &Elf<'_>, page_size: u64) -> Result<MappedImage, ExecError> {
+        MappedImage::map_with_relocations(elf, page_size, true)
+    }
+
+    /// Map the image and optionally apply `R_AARCH64_RELATIVE` relocations.
+    ///
+    /// Two passes are required: every segment must be writable while the
+    /// relocations land, so the final protections are applied afterwards — the same
+    /// reason the official loader copies, relocates, then narrows the protections.
+    pub fn map_with_relocations(
+        elf: &Elf<'_>,
+        page_size: u64,
+        relocate: bool,
+    ) -> Result<MappedImage, ExecError> {
         let mapping = plan(&elf.segments, elf.entry, page_size)?;
         let span = mapping
             .reserve_end
@@ -154,16 +172,46 @@ impl MappedImage {
             unsafe {
                 std::ptr::copy_nonoverlapping(source.as_ptr(), base.add(offset), filesz);
             }
-            if let Err(error) = protect(base, len, offset, span_len, prot as i32) {
-                return Err(cleanup(base, len, error));
-            }
             segments.push(MappedSegment {
                 address: base_vaddr + offset as u64,
                 file_len: segment.filesz,
                 mem_len: segment.memsz,
                 prot,
+                offset,
+                span_len,
             });
         }
+
+        // Relocations write into the image, so they run while everything is still
+        // writable and before the protections are narrowed.
+        if relocate {
+            let relocations = match reloc::relative_relocations(elf) {
+                Ok(list) => list,
+                Err(error) => return Err(cleanup(base, len, ExecError::Reloc(error))),
+            };
+            if let Err(error) = apply_relative(relocations, bias as i64, base, len) {
+                return Err(cleanup(base, len, error));
+            }
+        }
+
+        for segment in &segments {
+            if let Err(error) = protect(base, len, segment.offset, segment.span_len, segment.prot as i32)
+            {
+                return Err(cleanup(base, len, error));
+            }
+        }
+
+        let segments: Vec<MappedSegment> = segments
+            .into_iter()
+            .map(|segment| MappedSegment {
+                address: segment.address,
+                file_len: segment.file_len,
+                mem_len: segment.mem_len,
+                prot: segment.prot,
+                offset: segment.offset,
+                span_len: segment.span_len,
+            })
+            .collect();
 
         Ok(MappedImage {
             base,
@@ -207,6 +255,38 @@ impl Drop for MappedImage {
         unsafe {
             libc::munmap(self.base as *mut c_void, self.len);
         }
+    }
+}
+
+fn apply_relative(
+    relocations: Vec<Relative>,
+    bias: i64,
+    base: *mut u8,
+    len: usize,
+) -> Result<(), ExecError> {
+    let base_vaddr = base as u64;
+    let result = crate::reloc::apply(&relocations, bias, |offset, value| {
+        let address = match base_vaddr.checked_add(offset) {
+            Some(value) => value,
+            None => return false,
+        };
+        // The slot must land inside this reservation.
+        let slot = match address.checked_sub(base_vaddr) {
+            Some(value) => value as usize,
+            None => return false,
+        };
+        if slot + 8 > len {
+            return false;
+        }
+        unsafe {
+            let pointer = base.add(slot) as *mut u64;
+            std::ptr::write_unaligned(pointer, value);
+        }
+        true
+    });
+    match result {
+        Ok(_) => Ok(()),
+        Err(error) => Err(ExecError::Reloc(error)),
     }
 }
 
