@@ -9,8 +9,11 @@
 
 use std::io;
 
+use crate::bridge::SymbolTable;
+use crate::elf::Elf;
+use crate::executor::MappedImage;
 use crate::proto::{Tbd1, Tbd1Reply, B1F2, B1F2_LEN, TBD1_FRAME_LEN, TBD1_REPLY_LEN, TBD1_TAG};
-use crate::transport::{close_fd, recv_frame, send_frame};
+use crate::transport::{close_fd, read_all_fd, recv_frame, send_frame};
 use std::os::unix::io::RawFd;
 
 #[derive(Debug)]
@@ -20,6 +23,8 @@ pub enum SessionError {
     Mismatch(String),
     /// A reply that should have carried a descriptor did not.
     MissingDescriptor,
+    /// The descriptor did not hold a loadable ELF, or mapping it failed.
+    Unloadable(String),
 }
 
 impl From<io::Error> for SessionError {
@@ -36,6 +41,7 @@ impl std::fmt::Display for SessionError {
             SessionError::MissingDescriptor => {
                 write!(formatter, "the reply carried no descriptor")
             }
+            SessionError::Unloadable(reason) => write!(formatter, "unloadable guest: {reason}"),
         }
     }
 }
@@ -189,3 +195,37 @@ pub fn serve_exec(broker_fd: RawFd, tag: u16) -> Result<(u32, usize), SessionErr
 
 /// The tag the loader puts at offset 6; exposed so callers pass the real constant.
 pub const REQUEST_TAG: u16 = TBD1_TAG;
+
+/// The whole data path in one call: attach, read the guest binary from the descriptor
+/// the broker handed over, then map it.
+///
+/// This is the sequence the official loader performs — `B1F2` gives it a descriptor,
+/// the descriptor is the guest ELF, and the loader maps that image. The descriptor is
+/// left open because the guest keeps it (`TWOYI_LINKER_BOOT_DATA_FD`) after the image
+/// has been read.
+pub fn load_from_attach(
+    loader_fd: RawFd,
+    echo_a: u32,
+    echo_b: u32,
+    page_size: u64,
+    bridge: &SymbolTable,
+) -> Result<(Attached, MappedImage), SessionError> {
+    let attached = attach_over_socketpair(loader_fd, echo_a, echo_b, -1)?;
+    let bytes = read_all_fd(attached.descriptor)
+        .map_err(|error| SessionError::Unloadable(format!("reading the guest: {error}")))?;
+    let elf = Elf::parse(&bytes).map_err(|error| SessionError::Unloadable(format!("{error:?}")))?;
+    let image = MappedImage::map_with_bridge(&elf, page_size, true, Some(bridge))
+        .map_err(|error| SessionError::Unloadable(format!("{error}")))?;
+    Ok((attached, image))
+}
+
+/// Broker side of [`load_from_attach`]: hand over `descriptor` (usually an open guest
+/// binary) and answer the attach.
+pub fn serve_attach_descriptor(
+    broker_fd: RawFd,
+    handle_hi: u32,
+    handle_lo: u32,
+    descriptor: RawFd,
+) -> Result<(u32, u32), SessionError> {
+    serve_attach(broker_fd, handle_hi, handle_lo, descriptor)
+}

@@ -138,6 +138,54 @@ pub fn recv_frame(fd: RawFd, max_len: usize) -> io::Result<(Vec<u8>, Option<RawF
     Ok((data, attached))
 }
 
+/// Read a whole descriptor into memory.
+///
+/// The broker hands the loader a descriptor onto the guest binary; the loader then
+/// reads exactly that many bytes. `fstat` gives the size, and a `pread` loop fills
+/// the buffer without moving the file offset, so the descriptor stays usable for a
+/// later mapping read.
+pub fn read_all_fd(fd: RawFd) -> io::Result<Vec<u8>> {
+    let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+    if unsafe { libc::fstat(fd, &mut stat) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let size = stat.st_size;
+    if size <= 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "the descriptor holds no data",
+        ));
+    }
+    let length = usize::try_from(size)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "descriptor too large"))?;
+    let mut buffer = vec![0u8; length];
+    let mut filled = 0usize;
+    while filled < length {
+        let count = unsafe {
+            libc::pread(
+                fd,
+                buffer[filled..].as_mut_ptr() as *mut libc::c_void,
+                length - filled,
+                filled as libc::off_t,
+            )
+        };
+        if count < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if count == 0 {
+            break;
+        }
+        filled += count as usize;
+    }
+    if filled != length {
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            format!("read {filled} of {length} bytes from the descriptor"),
+        ));
+    }
+    Ok(buffer)
+}
+
 /// Free-function form of [`SocketPair::dup_here`], for callers that only have an fd.
 pub fn dup_here(fd: RawFd) -> io::Result<RawFd> {
     SocketPair::dup_here(fd)

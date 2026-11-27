@@ -140,3 +140,70 @@ fn a_sequence_and_tag_mismatch_is_reported() {
     close_fd(rootfs);
     let _ = std::fs::remove_file(&work);
 }
+/// Build a minimal aarch64 ELF with one executable PT_LOAD holding `payload`.
+fn guest_elf(payload: &[u8]) -> Vec<u8> {
+    let phoff = 64usize;
+    let payload_offset = phoff + 56;
+    let total = payload_offset + payload.len();
+    let mut out = vec![0u8; total];
+    out[0..4].copy_from_slice(b"\x7fELF");
+    out[4] = 2;
+    out[5] = 1;
+    out[6] = 1;
+    out[0x12..0x14].copy_from_slice(&0xb7u16.to_le_bytes());
+    // entry inside the segment
+    out[0x18..0x20].copy_from_slice(&0x400000u64.to_le_bytes());
+    out[0x20..0x28].copy_from_slice(&(phoff as u64).to_le_bytes());
+    out[0x36..0x38].copy_from_slice(&0x38u16.to_le_bytes());
+    out[0x38..0x3a].copy_from_slice(&1u16.to_le_bytes());
+    let ph = phoff;
+    out[ph..ph + 4].copy_from_slice(&1u32.to_le_bytes()); // PT_LOAD
+    out[ph + 4..ph + 8].copy_from_slice(&5u32.to_le_bytes()); // R|X
+    out[ph + 8..ph + 16].copy_from_slice(&(payload_offset as u64).to_le_bytes());
+    out[ph + 16..ph + 24].copy_from_slice(&0x400000u64.to_le_bytes());
+    out[ph + 32..ph + 40].copy_from_slice(&(payload.len() as u64).to_le_bytes());
+    out[ph + 40..ph + 48].copy_from_slice(&(payload.len() as u64).to_le_bytes());
+    out[ph + 48..ph + 56].copy_from_slice(&4096u64.to_le_bytes());
+    out[payload_offset..].copy_from_slice(payload);
+    out
+}
+
+#[test]
+fn the_loader_reads_the_guest_from_the_descriptor_and_maps_it() {
+    // The data path the official loader uses: attach gives a descriptor, the
+    // descriptor is the guest binary, and the loader maps that image.
+    let payload = [0xffu8, 0x43, 0x00, 0xd1, 0xc0, 0x03, 0x5f, 0xd6];
+    let bytes = guest_elf(&payload);
+    let work = std::env::temp_dir().join(format!("twoyi-guest-{}", std::process::id()));
+    {
+        let mut file = File::create(&work).expect("create elf");
+        file.write_all(&bytes).expect("write elf");
+    }
+    let guest_fd = {
+        let reader = File::open(&work).expect("open elf");
+        let duplicate = dup_here(reader.as_raw_fd()).expect("dup");
+        std::mem::forget(reader);
+        duplicate
+    };
+
+    let pair = SocketPair::new().expect("socketpair");
+    let broker_fd = pair.a;
+    let loader_fd = pair.b;
+    let broker = std::thread::spawn(move || serve_attach(broker_fd, 0xaa, 0xbb, guest_fd));
+
+    let bridge = miniloader::SymbolTable::new();
+    let (attached, image) =
+        miniloader::session::load_from_attach(loader_fd, 1, 2, 4096, &bridge).expect("load");
+
+    assert_eq!(attached.handle_hi, 0xaa);
+    assert_eq!(attached.handle_lo, 0xbb);
+    // The mapped image must hold the payload at its entry point.
+    let entry = image.entry();
+    let mapped = image.read(entry, payload.len()).expect("read entry bytes");
+    assert_eq!(mapped, &payload[..], "the guest payload was mapped from the descriptor");
+
+    broker.join().expect("broker thread").expect("serve");
+    close_fd(attached.descriptor);
+    close_fd(guest_fd);
+    let _ = std::fs::remove_file(&work);
+}
