@@ -139,6 +139,23 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段三十：完整握手跑在真实 socketpair + fd 上（67 项单测）
+
+- 新增 `tools/miniloader/src/session.rs`：把 `B1F2` → `TBD1` 的完整会话搬到 `socketpair` 上，
+  **每端只用自己那一个描述符**（这版 API 从「传 `SocketPair`」改成「传自己的 fd」，
+  因为一对 socket 不可能被两个线程同时拥有）。
+  - `attach_over_socketpair` / `serve_attach`：请求不带 fd，**应答必须带 fd**，没带就报
+    `MissingDescriptor`（不静默接受）；
+  - `exec_over_socketpair` / `serve_exec`：校验序号、tag、`is_success()` 与后端位图，
+    若应答意外夹带 fd 会**关掉它**而不是泄漏。
+- `tests/session.rs` 4 项（真跑）：握手拿到的 fd **能 `pread` 出 broker 那份文件的内容**、
+  broker 不给 fd 会被识别、attach 后紧接 exec 的完整会话、tag 不匹配被拒。
+- CI 运行 45948537778 全绿：**67 项**（session 4 + transport 4 + preflight 6 + symbols 8 +
+  bridge 6 + reloc 7 + executor 4 + image 4 + plan 8 + proto 6 + handshake 5 + resolver 5）。
+- 失败记录（run 45948238005）：`libc::pread` 的 count 是 `size_t`，我按 `off_t` 传了 `i64`，
+  编译直接不过；改成 `usize` 后通过。
+- 边界：仍是 **CI 的 Linux**，不是 Android；真机上「broker 打开哪个 rootfs 并递出去」还没实现。
+
 ## 阶段二十九：真的传一个文件描述符（`SCM_RIGHTS`，63 项单测）
 
 - 这段是整个握手里**唯一不能用字节流证明**的部分：官方 loader 的 `socketpair(1, 0x80005)`
