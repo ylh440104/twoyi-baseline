@@ -403,7 +403,36 @@ if-ne v0, v12, :cond_0                # opcode 6；否则落到 fallthrough
 - `isSupported()` 在本版恒为 `true`（`KernelSuHal.java:19-21`）；`false` 分支（`s0.java:46-48` `"KernelSU HAL unsupported in this backend"`）是给别的后端留的。
 - native 侧拿到的是什么语义（KernelSU 的 `fd` 代理 / 提权通道 / 直接与 `ksud` 对话）：**未解**，需要 `nativeHandle` 的反汇编。
 
-## 9. 证据索引
+
+## 9. resolver 的 native 入口：按名字找不到（负结论）
+
+上一版推测「`nativeResolve` 由 `RegisterNatives` 动态注册」，理由是 `.so` 只导出 `JNI_OnLoad`。
+扩大字符串搜索后（`.github/workflows/strings-focus.yml`，run 45927015406，`libtwoyi.so` 共 43,881 条字符串），
+这个推测**不成立**：
+
+| 搜索 | 结果 |
+|---|---|
+| 任何含 `resolve` 的字符串 | 只有 Vulkan 的 `vkCmdResolveImage` 系列与 `STCompileAndResolve`，**没有任何 JNI 名字** |
+| `^native[A-Za-z0-9_]+$` 形式的标识符 | **只有 `nativeHandle` 一个** |
+| 形如 `%s/…` 或 `*.sock/.pipe/.json` 的路径串 | **0 条** |
+| gfxstream 相关且含 `/`、`%`、`.` 的串 | 只有日志格式串，没有文件路径 |
+| `libloader.so` 里的 `resolve/endpoint/broker/notify` | **0 条**（该库的字符串是 XOR 编码的，明文本来就不出现） |
+
+也就是说：`nativeResolve` 既不在 `libtwoyi.so` 的明文名字表里，也没有 `Java_…_nativeResolve` 导出符号
+（该库只导出 `JNI_OnLoad`）。三种可能：
+
+1. 名字在运行时拼装（与 `libloader.so` 同一套混淆思路）；
+2. 该 Java 声明是**死代码**——resolver 请求实际由 `@twoyi_hal` 的 type 2 分支在 native 侧直接处理，
+   不经过这个 JNI 方法；
+3. 实现落在别的库（但 APK 里 `lib/arm64-v8a` 只有 `libtwoyi/libloader/libadb/libOpenglRender`）。
+
+**对 988 字节布局的含义**：靠名字定位这条路已经彻底走不通，只能对 `libtwoyi.so` 做**按调用点**的
+反汇编（从 `@twoyi_hal` 的 accept 循环往下追，而不是从名字入手），或真机抓一次 360/988 的真实字节。
+
+**顺带确认**：`gfxstream-vulkan` 目录里的文件名**没有任何明文串**——它同样只能是运行时构造或
+由 `libtwoyi.so` 自己拼出来的，这解释了为什么按路径格式搜索一直是 0 条。
+
+## 10. 证据索引
 
 | 结论 | 类#方法 / 常量 |
 |---|---|
@@ -441,7 +470,7 @@ if-ne v0, v12, :cond_0                # opcode 6；否则落到 fallthrough
 | 时间通道 | `k#h(Context,LocalSocket)`（`k.java:212-270`） |
 | 宿主广播通道 | `b0#a`（`b0.java:23-37`）、`z#onReceive` case 1（`z.java:100-122`） |
 
-## 10. 未解问题
+## 11. 未解问题
 
 1. **`android.net.LocalSocket(int)` 的 `2` / `3` 到底映射哪个 `SOCKET_*`**。反编译只有字面值（`d8/d.java:64` = 2，`io/twoyi/m.java:101` = 3），且两者都用于 `bind`+`accept`。本机实测 AF_UNIX 上 `SOCK_DGRAM` 不能 `listen()`、`SOCK_SEQPACKET` 可以，所以二者都必须是面向连接的类别；具体取值需在真机上看 `socket(2)` 的 `type` 参数或 `/proc/net/unix` 的 flags。
 2. **camera opcode 2..6 各自的语义**（编号已解，见 §7；语义未定）。
@@ -453,7 +482,7 @@ if-ne v0, v12, :cond_0                # opcode 6；否则落到 fallthrough
 8. **`twoyi_camera_transport` 由谁 bind**：Java 层不存在该名字。要么 0.7.5 的来宾 `camera.goldfish.so` 已改为连 `@twoyi_hal` type 5/6，要么该名字由 `libtwoyi.so` 绑定后再转 Java（`libtwoyi.so` 无导出符号可查，需反汇编 `JNI_OnLoad`/字符串 xref）。
 9. **type 9 的 8 字节负载语义**（时间值？时区？），以及 type 9 首字节 `0/1` 之外的取值行为（未处理 → 关闭）。
 
-## 11. 对重写/验收的含义
+## 12. 对重写/验收的含义
 
 - 只要实现 `@twoyi_hal` 的「`int32 LE type` + 回显」两段，再加上**任一**模块的后续字节，就能让该模块工作；其余模块不可混用格式。
 - 想先做最小可用闭环，优先级建议：vibrator（1 个 int32，无应答）→ lights（1 个 int32）→ sensors（3 条命令 + 定长事件）→ audio 控制（1 条命令 + 状态码）→ audio 播放/录音（裸 PCM，最容易验证）→ gps（握手 + 单字节命令 + TGPS 帧）→ camera（自描述 32 字节头，但 opcode 未解，风险最高）。

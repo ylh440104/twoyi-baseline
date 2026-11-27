@@ -98,6 +98,19 @@
 
 附：`find_jni_table.py` 本身是可复用的（将来若有别的 so 用静态表，一条命令即可列出全部注册项）。
 
+
+### 4.1 resolver 与 gfxstream 端点：按名字找不到（负结论）
+
+run 45927015406 在 `libtwoyi.so` 的 43,881 条字符串里做了定向搜索：
+
+- 含 `resolve` 的只有 Vulkan 的 `vkCmdResolveImage` 系列与 `STCompileAndResolve`；
+- `^native[A-Za-z0-9_]+$` 只命中 **`nativeHandle`** 一个；
+- 形如 `%s/…`、`*.sock`、`*.pipe`、`*.json` 的路径串 **0 条**；
+- `libloader.so` 里 `resolve/endpoint/broker/notify` 也是 **0 条**（该库字符串是 XOR 编码的）。
+
+结论：`nativeResolve` 既无明文名字也无 `Java_…` 导出符号，`gfxstream-vulkan` 目录的文件名同样没有明文。
+靠「找名字」定位这两个缺口的路线**到此为止**，只剩「按调用点反汇编」或「真机抓包」两条路。
+
 ## 5. 一句话结论
 
 **loader 的「请求」这一半已经是指令流级的实证；「应答」和「它让宿主做什么」是推断；
