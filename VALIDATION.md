@@ -139,6 +139,22 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段三轮（续七）：任务直播状态与三个控件（host 用例 + 构建通过）
+
+- 新增 `TwinTaskState.java`（纯逻辑，宿主可测）：九个阶段
+  `IDLE/QUEUED/PREPARING/RUNNING/PAUSED/STOPPING/USER_IN_CONTROL/DONE/FAILED`，
+  以及「谁能做什么」的守卫：
+  - 只有 `RUNNING` 能暂停、只有 `PAUSED` 能继续；
+  - 停止只对 `RUNNING/PAUSED/PREPARING` 开放，且先进入 `STOPPING`，到步骤边界才交棒 `USER_IN_CONTROL`；
+  - 接管只在 `RUNNING/PAUSED` 可用；交回后回到 `RUNNING`；
+  - `DONE/FAILED` 是终态且不能被覆盖；新任务只能从 `IDLE/DONE/FAILED` 开始。
+- 界面：Twin 页输入区上方新增**状态条**，显示当前阶段文案并提供暂停/继续、停止、接管、交回按钮
+  （按钮出现与否完全由上面的守卫决定，不是写死的）。
+- 证据：run 45925201051 的 `PASS: twin task state guards pause, stop and hand-back`
+  （同批还有密钥信封、模型目录、表单规则三条 PASS）；Android 构建 run 45925201033 通过。
+- 边界：**没有任务引擎**——发消息时把状态直接推进到 `RUNNING` 以便演练控件，
+  真实的 `QUEUED→PREPARING→…` 由将来的运行时驱动。这是刻意的占位，不是实现完成。
+
 ## 阶段三轮（续六）：密钥只留在本机（host 用例 + 构建通过）
 
 - 最新版承诺「密钥只保存在本机」，所以连接不再只存一个 model 名：
