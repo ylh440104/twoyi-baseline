@@ -13,12 +13,16 @@ use std::ffi::c_void;
 use crate::elf::Elf;
 use crate::image::ImageError;
 use crate::map::{plan, prot_for};
+use crate::bridge::SymbolTable;
 use crate::reloc::{self, Relative};
+use crate::symbols;
 
 #[derive(Debug)]
 pub enum ExecError {
     Image(ImageError),
     Reloc(crate::reloc::RelocError),
+    Symbols(crate::symbols::SymError),
+    Unresolved { name: String },
     Allocate { size: usize, errno: i32 },
     Protect { at: u64, len: usize, errno: i32 },
     ProtectedButEmpty,
@@ -41,6 +45,10 @@ impl std::fmt::Display for ExecError {
         match self {
             ExecError::Image(error) => write!(formatter, "image: {error:?}"),
             ExecError::Reloc(error) => write!(formatter, "relocation: {error:?}"),
+            ExecError::Symbols(error) => write!(formatter, "symbols: {error:?}"),
+            ExecError::Unresolved { name } => {
+                write!(formatter, "required host libc bridge symbol is unavailable: {name}")
+            }
             ExecError::Allocate { size, errno } => {
                 write!(formatter, "mmap of {size} bytes failed (errno {errno})")
             }
@@ -90,6 +98,16 @@ impl MappedImage {
         elf: &Elf<'_>,
         page_size: u64,
         relocate: bool,
+    ) -> Result<MappedImage, ExecError> {
+        MappedImage::map_with_bridge(elf, page_size, relocate, None)
+    }
+
+    /// Map the image, relocate it, and patch its jump slots from `bridge`.
+    pub fn map_with_bridge(
+        elf: &Elf<'_>,
+        page_size: u64,
+        relocate: bool,
+        bridge: Option<&SymbolTable>,
     ) -> Result<MappedImage, ExecError> {
         let mapping = plan(&elf.segments, elf.entry, page_size)?;
         let span = mapping
@@ -196,6 +214,18 @@ impl MappedImage {
             }
         }
 
+        // Jump slots are patched while the image is still writable, like the
+        // relative relocations above.
+        if let Some(table) = bridge {
+            let slots = match symbols::jump_slots(elf) {
+                Ok(list) => list,
+                Err(error) => return Err(cleanup(base, len, ExecError::Symbols(error))),
+            };
+            if let Err(error) = apply_jump_slots(&slots, table, mapping.reserve_start, base, len) {
+                return Err(cleanup(base, len, error));
+            }
+        }
+
         for segment in &segments {
             if let Err(error) = protect(base, len, segment.offset, segment.span_len, segment.prot as i32)
             {
@@ -287,6 +317,43 @@ fn apply_relative(
         Ok(_) => Ok(()),
         Err(error) => Err(ExecError::Reloc(error)),
     }
+}
+
+fn apply_jump_slots(
+    slots: &[symbols::JumpSlot],
+    table: &SymbolTable,
+    reserve_start: u64,
+    base: *mut u8,
+    len: usize,
+) -> Result<(), ExecError> {
+    for slot in slots {
+        let address = match table.resolve(&slot.symbol) {
+            Some(value) => value,
+            None => {
+                return Err(ExecError::Unresolved {
+                    name: slot.symbol.clone(),
+                })
+            }
+        };
+        let offset = match slot.offset.checked_sub(reserve_start) {
+            Some(value) => value as usize,
+            None => {
+                return Err(ExecError::Unresolved {
+                    name: slot.symbol.clone(),
+                })
+            }
+        };
+        if offset + 8 > len {
+            return Err(ExecError::Unresolved {
+                name: slot.symbol.clone(),
+            });
+        }
+        unsafe {
+            let pointer = base.add(offset) as *mut u64;
+            std::ptr::write_unaligned(pointer, address);
+        }
+    }
+    Ok(())
 }
 
 fn protect(base: *mut u8, total: usize, offset: usize, len: usize, prot: i32) -> Result<(), ExecError> {
