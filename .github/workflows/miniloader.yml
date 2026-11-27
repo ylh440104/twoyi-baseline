@@ -103,6 +103,19 @@ jobs:
           awk '/^map /{ if ($0 ~ /prot=5/ || $0 ~ /prot=7/) found=1 } END{ exit found ? 0 : 1 }' \
             "$RUNNER_TEMP/plan-aarch64.txt"
           echo "planner handled a real aarch64 ELF"
+
+          # Now really map it: mmap the span, copy the segments, mprotect them.
+          cargo run --manifest-path tools/miniloader/Cargo.toml --bin miniloader-plan -- \
+            "$work/guest" 4096 --map | tee "$RUNNER_TEMP/map-aarch64.txt"
+          grep -q 'mapped: entry=0x' "$RUNNER_TEMP/map-aarch64.txt"
+          grep -q 'mapped\[0\] addr=0x' "$RUNNER_TEMP/map-aarch64.txt"
+          grep -qE 'prot=(5|7)' "$RUNNER_TEMP/map-aarch64.txt"
+          grep -q 'entry bytes: ' "$RUNNER_TEMP/map-aarch64.txt"
+          if grep -q 'unreadable' "$RUNNER_TEMP/map-aarch64.txt"; then
+            echo "::error::the mapped entry could not be read back"
+            exit 1
+          fi
+          echo "mapped a real aarch64 image into this process"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -112,4 +125,5 @@ jobs:
           path: |
             ${{ runner.temp }}/plan.txt
             ${{ runner.temp }}/plan-aarch64.txt
+            ${{ runner.temp }}/map-aarch64.txt
             ${{ runner.temp }}/rustfmt.diff

@@ -73,6 +73,33 @@ fn main() {
         );
     }
 
+    if std::env::args().any(|argument| argument == "--map") {
+        match miniloader::MappedImage::map(&parsed, page_size) {
+            Ok(mapped) => {
+                println!(
+                    "mapped: entry=0x{:x} segments={}",
+                    mapped.entry(),
+                    mapped.segments().len()
+                );
+                for (index, segment) in mapped.segments().iter().enumerate() {
+                    println!(
+                        "mapped[{}] addr=0x{:x} file={} mem={} prot={}",
+                        index, segment.address, segment.file_len, segment.mem_len, segment.prot
+                    );
+                }
+                let entry = mapped.entry();
+                match mapped.read(entry, 4) {
+                    Some(bytes) => println!(
+                        "entry bytes: {:02x} {:02x} {:02x} {:02x}",
+                        bytes[0], bytes[1], bytes[2], bytes[3]
+                    ),
+                    None => println!("entry bytes: unreadable"),
+                }
+            }
+            Err(error) => println!("mapped: failed ({error})"),
+        }
+    }
+
     let image = miniloader::GuestImage::load(&parsed, page_size);
     match image {
         Ok(dry_run) => println!(

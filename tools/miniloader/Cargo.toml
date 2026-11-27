@@ -13,3 +13,8 @@ path = "src/lib.rs"
 [[bin]]
 name = "miniloader-plan"
 path = "src/main.rs"
+
+[dependencies]
+# Only for the host-side executor tests: mmap/mprotect/munmap. Pinned to a release
+# that still builds with the declared 1.60 MSRV.
+libc = "=0.2.126"
