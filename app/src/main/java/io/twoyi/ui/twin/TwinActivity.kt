@@ -72,6 +72,19 @@ private enum class Tab(val label: Int) {
 
 private enum class Screen { Boot, Main, Provider, Settings, Memory }
 
+/**
+ * A line in the Twin conversation. `Need` is the confirmation turn: the Twin asked
+ * something that has a consequence, and waits for the user before continuing.
+ */
+private sealed class Line {
+    class User(val text: String) : Line()
+    class Twin(val text: String) : Line()
+    class Need(val question: String, val consequence: Int?) : Line() {
+        var resolved by mutableStateOf(false)
+        var outcome by mutableStateOf<Int?>(null)
+    }
+}
+
 private class TwinState(
     val phone: TwinRuntime.PhoneState,
     val modelConnected: Boolean
@@ -84,7 +97,7 @@ private class TwinState(
     var error by mutableStateOf(phone.message)
     var model by mutableStateOf(modelConnected)
     var draft by mutableStateOf("")
-    val messages = mutableStateListOf<Pair<String, Boolean>>()
+    val messages = mutableStateListOf<Line>()
 }
 
 @Composable
@@ -255,21 +268,22 @@ private fun TwinSurface(state: TwinState) {
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(state.messages) { (text, fromTwin) ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = if (fromTwin) Arrangement.Start else Arrangement.End
-                    ) {
-                        Card {
-                            Text(
-                                text = text,
-                                modifier = Modifier.padding(12.dp),
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
+                items(state.messages) { line ->
+                    when (line) {
+                        is Line.User -> Bubble(line.text, fromTwin = false)
+                        is Line.Twin -> Bubble(line.text, fromTwin = true)
+                        is Line.Need -> NeedCard(line)
                     }
                 }
             }
+        }
+        val waiting = state.messages.any { it is Line.Need && !it.resolved }
+        if (waiting) {
+            Text(
+                text = stringResource(R.string.twin_need_waiting),
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
         }
         Divider()
         Composer(state)
@@ -277,7 +291,70 @@ private fun TwinSurface(state: TwinState) {
 }
 
 @Composable
+private fun Bubble(text: String, fromTwin: Boolean) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (fromTwin) Arrangement.Start else Arrangement.End
+    ) {
+        Card {
+            Text(
+                text = text,
+                modifier = Modifier.padding(12.dp),
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+    }
+}
+
+/**
+ * The confirmation turn. The Twin states what it wants to do and the consequence,
+ * then offers accept / reject / hand-over. Every state has its own copy, matching
+ * the newest build's wording.
+ */
+@Composable
+private fun NeedCard(line: Line.Need) {
+    val context = LocalContext.current
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(line.question, style = MaterialTheme.typography.bodyMedium)
+                line.consequence?.let { consequence ->
+                    Text(
+                        text = stringResource(consequence),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                if (!line.resolved) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                            line.resolved = true
+                            line.outcome = R.string.twin_need_row_accepted
+                        }) { Text(stringResource(R.string.twin_need_accept)) }
+                        OutlinedButton(onClick = {
+                            line.resolved = true
+                            line.outcome = R.string.twin_need_row_declined
+                        }) { Text(stringResource(R.string.twin_need_reject)) }
+                    }
+                    TextButton(onClick = {
+                        // Hand the turn to the user: open the phone, then mark it handled.
+                        TwinRuntime.startPhone(context)
+                        line.resolved = true
+                        line.outcome = R.string.twin_need_row_handled
+                    }) { Text(stringResource(R.string.twin_need_go_phone)) }
+                } else {
+                    Text(
+                        text = stringResource(line.outcome ?: R.string.twin_need_row_handled),
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun Composer(state: TwinState) {
+    val context = LocalContext.current
     val notWired = "(" + stringResource(R.string.twin_agent_not_wired) + ")"
     val enabled = state.model && state.phoneCreated
     Row(
@@ -319,12 +396,43 @@ private fun Composer(state: TwinState) {
         Button(
             enabled = enabled && state.draft.isNotBlank(),
             onClick = {
-                state.messages.add(state.draft to false)
-                // Stand-in for the model reply: the runtime will supply it.
-                state.messages.add(notWired to true)
+                val text = state.draft.trim()
+                state.messages.add(Line.User(text))
                 state.draft = ""
+                val consequence = riskyConsequence(text)
+                if (consequence != null && TwinRuntime.isFlag(context, TwinRuntime.FLAG_CONFIRM_RISKY)) {
+                    // Placeholder turn: the real model will produce this question. The
+                    // shell only demonstrates the confirmation interaction end to end.
+                    state.messages.add(
+                        Line.Need(
+                            question = stringResource(R.string.twin_need_tap_question, text),
+                            consequence = consequence
+                        )
+                    )
+                } else {
+                    state.messages.add(Line.Twin(notWired))
+                }
             }
         ) { Text(stringResource(R.string.twin_send)) }
+    }
+}
+
+/**
+ * Which consequence a draft implies, or null when it is an ordinary request.
+ *
+ * This is deliberately conservative and local: it only decides which confirmation
+ * copy to show. The model decides what actually needs confirming once it is wired.
+ */
+private fun riskyConsequence(text: String): Int? {
+    val lower = text.lowercase()
+    return when {
+        lower.contains("delete") || lower.contains("remove") || lower.contains("删除") ->
+            R.string.twin_need_consequence_delete
+        lower.contains("pay") || lower.contains("buy") || lower.contains("付款") || lower.contains("支付") ->
+            R.string.twin_need_consequence_pay
+        lower.contains("send") || lower.contains("post") || lower.contains("发送") || lower.contains("发布") ->
+            R.string.twin_need_consequence_send
+        else -> null
     }
 }
 
