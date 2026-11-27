@@ -185,7 +185,20 @@ fn trace_child(child: libc::pid_t) -> Result<(Outcome, Option<Trap>), RunError> 
 }
 
 /// Read the registers and the faulting address of a stopped child.
+///
+/// The register layout is architecture specific; only AArch64 is modelled here, because
+/// only AArch64 guests can be run at all. Elsewhere the signal number is still reported.
 fn read_trap(child: libc::pid_t, signal: i32) -> Option<Trap> {
+    read_trap_aarch64(child, signal)
+}
+
+#[cfg(not(target_arch = "aarch64"))]
+fn read_trap_aarch64(_child: libc::pid_t, _signal: i32) -> Option<Trap> {
+    None
+}
+
+#[cfg(target_arch = "aarch64")]
+fn read_trap_aarch64(child: libc::pid_t, signal: i32) -> Option<Trap> {
     let mut registers: libc::user_regs_struct = unsafe { std::mem::zeroed() };
     let mut vector = libc::iovec {
         iov_base: &mut registers as *mut _ as *mut libc::c_void,

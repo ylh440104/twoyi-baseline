@@ -431,9 +431,14 @@ pub extern "system" fn send_key_code(_env: JNIEnv, _clz: jclass, keycode: jint) 
 /// drift from the loader: if the app says an image is loadable, the loader agrees.
 #[no_mangle]
 pub extern "system" fn guest_preflight(env: JNIEnv, _clz: jclass, path: jstring) -> jstring {
-    let text: String = match env.get_string(path) {
-        Ok(value) => value.into(),
-        Err(_) => return env.new_string("ERROR unreadable path").unwrap().into_raw(),
+    let text: String = match env.get_string(path.into()) {
+        Ok(value) => String::from(value),
+        Err(_) => {
+            return match env.new_string("ERROR unreadable path") {
+                Ok(value) => *value,
+                Err(_) => std::ptr::null_mut(),
+            }
+        }
     };
     let verdict = match std::fs::read(&text) {
         Ok(bytes) => {
@@ -477,7 +482,7 @@ pub extern "system" fn guest_preflight(env: JNIEnv, _clz: jclass, path: jstring)
         Err(error) => format!("UNREADABLE {error}"),
     };
     match env.new_string(verdict) {
-        Ok(value) => value.into_raw(),
+        Ok(value) => *value,
         Err(_) => std::ptr::null_mut(),
     }
 }
