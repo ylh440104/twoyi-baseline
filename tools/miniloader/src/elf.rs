@@ -57,6 +57,18 @@ pub enum ElfError {
     AddressOverflow,
 }
 
+/// The thread-local storage an image asks for (`PT_TLS`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TlsImage {
+    /// Link-time address of the initialisation image.
+    pub vaddr: u64,
+    /// Bytes to copy from the file.
+    pub filesz: u64,
+    /// Bytes to reserve; the tail past `filesz` starts zeroed.
+    pub memsz: u64,
+    pub align: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct Elf<'a> {
     pub entry: u64,
@@ -67,6 +79,8 @@ pub struct Elf<'a> {
     pub phdr_vaddr: Option<u64>,
     pub phdr_entry_size: u16,
     pub phdr_count: u16,
+    /// `PT_TLS`, when the image uses thread-local storage.
+    pub tls: Option<TlsImage>,
 }
 
 fn read_u16(data: &[u8], offset: usize) -> Option<u16> {
@@ -168,10 +182,30 @@ impl<'a> Elf<'a> {
                 None
             }
         });
+        // PT_TLS (type 7) is not a loadable segment, so it is read separately.
+        let mut tls = None;
+        {
+            let phoff = read_u64(data, 0x20).unwrap_or(0) as usize;
+            for index in 0..phnum {
+                let base = phoff + index * phentsize as usize;
+                let Some(kind) = read_u32(data, base) else { break };
+                if kind != 7 {
+                    continue;
+                }
+                tls = Some(TlsImage {
+                    vaddr: read_u64(data, base + 0x10).unwrap_or(0),
+                    filesz: read_u64(data, base + 0x20).unwrap_or(0),
+                    memsz: read_u64(data, base + 0x28).unwrap_or(0),
+                    align: read_u64(data, base + 0x30).unwrap_or(0),
+                });
+                break;
+            }
+        }
         Ok(Elf {
             entry,
             segments,
             data,
+            tls,
             phdr_vaddr,
             phdr_entry_size: phentsize,
             phdr_count: phnum_raw,

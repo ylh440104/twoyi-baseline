@@ -184,3 +184,30 @@ Termux 本身就是 Android + bionic + aarch64，装了 Rust 1.100 后可在**�
 两个真实二进制都停在**很低的地址**上，与「`TPIDR_EL0` 没有被设置成来宾自己的线程控制块」一致：
 fork 之后它仍指向宿主 Termux 线程的 TCB，来宾按自己的 TLS 偏移去访问就落进乱七八糟的地方。
 这就是 TLS 必须实现的原因，现在有地址为证。
+
+## TLS / TCB：试到哪一步，以及为什么不能硬来
+
+看到崩溃地址后先加了两个能力，再尝试 TLS：
+
+1. `run_diagnosed()` 现在从 `ucontext` 里取 **PC**，`--example runinit` 会把 PC 换算成文内偏移。
+   真实来宾 `init` 崩在 `pc=0x5f`、`address=0x200000`；`toybox` 崩在 `address=0x35230`。
+2. `Elf::tls`：解析 `PT_TLS`。实测两者都**没有可用的 TLS 镜像**——
+   `toybox` 的 `PT_TLS` 是 `memsz=0`，Android 8.1 的静态 `init` 干脆没有 `PT_TLS`。
+
+### 自造 TCB 会把宿主 libc 弄崩
+
+按 variant I 的布局分配块、把 `PT_TLS` 初始镜像拷进去、`msr tpidr_el0` 指过去之后，
+**我们的诊断打印自己就崩了**：换成 `Exited(126)`/`SIGSEGV`，且信号处理器都进不去。
+
+原因很直接：bionic 把 `errno` 和它自己的槽位放在**线程指针后面**，一个全零的块不满足这个布局，
+于是切过去之后**同一线程里的任何宿主 libc 调用**（哪怕是 `write`）都会踩到坏地址。
+自造 TCB 不是 bionic TCB。
+
+### 现在的做法与代价
+
+- TCB 块仍然分配，但**只有来宾确实有 `PT_TLS`（`memsz > 0`）时才切 TP**，并且切换是最后一步、
+  之后不再调用宿主 libc；
+- 因此 `toybox` 与真实 `init` 保持继承宿主的 TP，行为和上一轮一致（在自己的地方崩，我们能报地址）。
+
+**结论**：真实 bionic 程序要跑起来，需要一个**符合 bionic 布局的 TCB**（`pthread_internal_t`、
+`bionic_tls`、`dtv`），这不是猜得出来的，得从 bionic 的头部信息里取；在此之前 TLS 这一项是空缺。

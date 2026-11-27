@@ -52,10 +52,31 @@ fn main() {
         }
     }
     match miniloader::run::run_diagnosed(&bytes, 4096, &bridge, &argv_refs, &["PATH=/system/bin"]) {
-        Ok((outcome, Some(fault))) => println!(
-            "outcome: {outcome:?} fault: signal={} address=0x{:x}",
-            fault.signal, fault.address
-        ),
+        Ok((outcome, Some(fault))) => {
+            println!(
+                "outcome: {outcome:?} fault: signal={} address=0x{:x} pc=0x{:x}",
+                fault.signal, fault.address, fault.pc
+            );
+            // Say which instruction that PC corresponds to, when the image can tell us.
+            if let Ok(parsed) = miniloader::elf::Elf::parse(&bytes) {
+                for segment in &parsed.segments {
+                    let end = segment.vaddr + segment.filesz;
+                    if fault.pc >= segment.vaddr && fault.pc < end {
+                        let file_offset = segment.offset + (fault.pc - segment.vaddr);
+                        let start = file_offset as usize;
+                        let stop = (start + 8).min(bytes.len());
+                        let some = &bytes[start..stop];
+                        println!(
+                            "  pc is at file offset 0x{:x}: {:02x?}",
+                            file_offset, some
+                        );
+                        let bias = fault.pc.wrapping_sub(fault.pc);
+                        let _ = bias;
+                        break;
+                    }
+                }
+            }
+        }
         Ok((outcome, None)) => println!("outcome: {outcome:?}"),
         Err(error) => println!("error: {error}"),
     }

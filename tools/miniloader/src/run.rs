@@ -162,7 +162,11 @@ pub fn run_diagnosed(
 static FAULT_FD: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
 
 /// Write `signal address` and leave: the child has already failed by this point.
-extern "C" fn fault_handler(signal: libc::c_int, info: *mut libc::siginfo_t, _context: *mut std::ffi::c_void) {
+extern "C" fn fault_handler(
+    signal: libc::c_int,
+    info: *mut libc::siginfo_t,
+    context: *mut std::ffi::c_void,
+) {
     let fd = FAULT_FD.load(std::sync::atomic::Ordering::SeqCst);
     if fd >= 0 {
         // `si_addr` follows the three-int header, aligned to a pointer.
@@ -171,7 +175,14 @@ extern "C" fn fault_handler(signal: libc::c_int, info: *mut libc::siginfo_t, _co
         } else {
             unsafe { *((info as *const u8).add(16) as *const usize) }
         };
-        let text = format!("{} 0x{:x}\n", signal, address);
+        // The program counter comes from the signal context; without it the address
+        // alone cannot say which instruction went wrong.
+        let pc = if context.is_null() {
+            0usize
+        } else {
+            unsafe { (*(context as *const libc::ucontext_t)).uc_mcontext.pc as usize }
+        };
+        let text = format!("{} 0x{:x} 0x{:x}\n", signal, address, pc);
         unsafe {
             libc::write(2, text.as_ptr() as *const libc::c_void, text.len());
             libc::write(fd, text.as_ptr() as *const libc::c_void, text.len());
@@ -206,10 +217,14 @@ fn parse_fault(text: &str) -> Option<Fault> {
         let mut parts = line.split_whitespace();
         let signal = parts.next()?.parse().ok()?;
         let address = u64::from_str_radix(parts.next()?.trim_start_matches("0x"), 16).ok()?;
+        let pc = parts
+            .next()
+            .and_then(|text| u64::from_str_radix(text.trim_start_matches("0x"), 16).ok())
+            .unwrap_or(0);
         Some(Fault {
             signal,
             address,
-            pc: 0,
+            pc,
         })
     })
 }
@@ -265,6 +280,13 @@ pub fn run(
             Ok(decode_status(status))
         }
     }
+}
+
+fn align_up(value: u64, align: u64) -> u64 {
+    if align <= 1 {
+        return value;
+    }
+    (value + align - 1) & !(align - 1)
 }
 
 fn decode_status(status: libc::c_int) -> Outcome {
@@ -329,6 +351,70 @@ fn run_child(
 
     // Hand control over. `blr` sets the return address to right after itself, so a
     // guest that returns lands on the trap instead of into random memory.
+    // Thread-local storage. AArch64 uses variant I: the static TLS block sits *below*
+    // the thread pointer, the TCB at and above it.
+    //
+    // The TCB is needed even when `PT_TLS` is empty (a real bionic binary here has
+    // `memsz == 0`) and even when there is no `PT_TLS` at all (the static Android 8.1
+    // `init` has none): bionic keeps errno and its own slots behind the thread pointer,
+    // so an unset `TPIDR_EL0` still points at whatever the host thread had.
+    let (tls_size, tls_filesz, tls_source) = match elf.tls {
+        Some(tls) if tls.memsz > 0 && tls.memsz < (1 << 20) => {
+            let align = if tls.align == 0 { 16 } else { tls.align };
+            let source = elf.segments.iter().find_map(|segment| {
+                let end = segment.vaddr.checked_add(segment.filesz)?;
+                if tls.vaddr >= segment.vaddr && tls.vaddr < end {
+                    Some(segment.offset + (tls.vaddr - segment.vaddr))
+                } else {
+                    None
+                }
+            });
+            (align_up(tls.memsz, align), tls.filesz, source)
+        }
+        _ => (0, 0, None),
+    };
+    let tcb_size = 4096u64;
+    let total = tls_size + tcb_size;
+    let block = unsafe {
+        libc::mmap(
+            std::ptr::null_mut(),
+            total as usize,
+            libc::PROT_READ | libc::PROT_WRITE,
+            libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+            -1,
+            0,
+        )
+    };
+    if block == libc::MAP_FAILED {
+        return Err(());
+    }
+    let block_base = block as u64;
+    if tls_filesz > 0 {
+        if let Some(offset) = tls_source {
+            let take = (tls_filesz as usize).min(bytes.len().saturating_sub(offset as usize));
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    bytes.as_ptr().add(offset as usize),
+                    block_base as *mut u8,
+                    take,
+                );
+            }
+        }
+    }
+    // Switch the thread pointer only when the guest really has TLS to point at.
+    //
+    // A fabricated control block is *not* a bionic TCB: bionic keeps errno and its own
+    // slots behind the thread pointer, so switching to a zeroed block makes the first
+    // host libc call in this thread fault. That is why the switch is last, why nothing
+    // after it may call the host libc, and why a guest with no `PT_TLS` keeps the
+    // inherited pointer for now.
+    let tp = block_base + tls_size;
+    if tls_size > 0 {
+        unsafe {
+            core::arch::asm!("msr tpidr_el0, {}", in(reg) tp, options(nostack, preserves_flags));
+        }
+    }
+
     if std::env::var("TWOYI_TRACE_FAULT").is_ok() {
         eprintln!("jumping to entry=0x{entry:x} sp=0x{base_address:x}");
     }

@@ -139,6 +139,19 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段四十：TLS/TCB 尝试与边界（84 项，本机 bionic 实测）
+
+- `Fault` 增加 `pc`：从 `ucontext.uc_mcontext.pc` 取，`runinit` 会把 PC 换算成文件偏移。
+  实测：真实 `init` 崩在 `pc=0x5f`/`address=0x200000`，`toybox` 崩在 `address=0x35230`。
+- `Elf::tls`：解析 `PT_TLS`。**实测两者都没有可用 TLS 镜像**（toybox `memsz=0`，静态 `init` 无 `PT_TLS`）。
+- 按 variant I 实现 TLS 块（分配、拷初始镜像、`msr tpidr_el0`）后，**诊断代码自己崩了**：
+  自造的全零 TCB 不满足 bionic 布局（errno 与 bionic 槽位在线程指针后面），
+  切过去后同线程任何宿主 libc 调用都会踩坏地址。
+- 因此改成：TCB 块照常分配，但**只有 `PT_TLS.memsz > 0` 时才切 TP**，且切换是最后一步、
+  之后不调用宿主 libc。真实二进制行为回到上一轮（能报地址，仍崩）。
+- **结论/空缺**：真实 bionic 程序需要**符合 bionic 布局的 TCB**（`pthread_internal_t`/`bionic_tls`/`dtv`），
+  不能靠猜；在做到之前 TLS 是空缺项。84 项测试全绿。
+
 ## 阶段三十九：崩溃地址取证，为 TLS 定位（84 项，本机 bionic 实测）
 
 - 新增 `run::run_diagnosed()`：子进程里装 `SA_SIGINFO` 处理器，把 `si_addr` 经**管道**送回父进程
