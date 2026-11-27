@@ -435,7 +435,7 @@ pub extern "system" fn guest_preflight(env: JNIEnv, _clz: jclass, path: jstring)
         Ok(value) => String::from(value),
         Err(_) => {
             return match env.new_string("ERROR unreadable path") {
-                Ok(value) => *value,
+                Ok(value) => jni::objects::JObject::from(value).into_inner() as jstring,
                 Err(_) => std::ptr::null_mut(),
             }
         }
@@ -482,7 +482,7 @@ pub extern "system" fn guest_preflight(env: JNIEnv, _clz: jclass, path: jstring)
         Err(error) => format!("UNREADABLE {error}"),
     };
     match env.new_string(verdict) {
-        Ok(value) => *value,
+        Ok(value) => jni::objects::JObject::from(value).into_inner() as jstring,
         Err(_) => std::ptr::null_mut(),
     }
 }
