@@ -194,4 +194,7 @@
     <string name="twin_need_row_handled">You handled it</string>
     <string name="twin_need_row_replied">You replied: %1$s</string>
     <string name="twin_need_tap_question">Tap “%1$s”?</string>
+    <string name="twin_api_key_required">Enter an API key</string>
+    <string name="twin_api_key_bad_chars">The API key contains invalid characters. Check for non-English or full-width characters, or line breaks</string>
+    <string name="twin_base_url_invalid">Enter a valid API URL starting with http:// or https://</string>
 </resources>

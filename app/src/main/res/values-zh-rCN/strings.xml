@@ -192,4 +192,7 @@
     <string name="twin_need_row_handled">你已处理</string>
     <string name="twin_need_row_replied">你回复：%1$s</string>
     <string name="twin_need_tap_question">点击「%1$s」？</string>
+    <string name="twin_api_key_required">请输入 API Key</string>
+    <string name="twin_api_key_bad_chars">API Key 含有无效字符。请检查是否有中文、全角字符或换行。</string>
+    <string name="twin_base_url_invalid">请输入以 http:// 或 https:// 开头的有效 API 地址</string>
 </resources>

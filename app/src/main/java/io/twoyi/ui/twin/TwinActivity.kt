@@ -42,6 +42,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.twoyi.R
+import io.twoyi.TwinProviderRules
 
 /**
  * Compose shell mirroring the newest build's structure: a two-step onboarding, a
@@ -507,6 +508,7 @@ private fun ProviderScreen(state: TwinState) {
     var baseUrl by remember { mutableStateOf("") }
     var apiKey by remember { mutableStateOf("") }
     var model by remember { mutableStateOf("") }
+    var problems by remember { mutableStateOf(listOf<Int>()) }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -521,15 +523,41 @@ private fun ProviderScreen(state: TwinState) {
         Field(stringResource(R.string.twin_provider_base_url), baseUrl) { baseUrl = it }
         Field(stringResource(R.string.twin_provider_api_key), apiKey) { apiKey = it }
         Field(stringResource(R.string.twin_provider_model_hint), model) { model = it }
+        problems.forEach { problem ->
+            Text(
+                text = stringResource(problem),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = {}) { Text(stringResource(R.string.twin_provider_fetch_models)) }
             Button(
-                enabled = apiKey.isNotBlank() && model.isNotBlank(),
                 onClick = {
-                    TwinRuntime.rememberProvider(context, model)
-                    TwinRuntime.setProviderConnected(context, true)
-                    state.model = true
-                    state.screen = Screen.Main
+                    val found = mutableListOf<Int>()
+                    when (TwinProviderRules.checkKey(apiKey)) {
+                        TwinProviderRules.KeyProblem.REQUIRED ->
+                            found.add(R.string.twin_api_key_required)
+                        TwinProviderRules.KeyProblem.BAD_CHARS ->
+                            found.add(R.string.twin_api_key_bad_chars)
+                        TwinProviderRules.KeyProblem.NONE -> Unit
+                    }
+                    when (TwinProviderRules.checkBaseUrl(baseUrl)) {
+                        TwinProviderRules.UrlProblem.NOT_HTTP,
+                        TwinProviderRules.UrlProblem.MALFORMED ->
+                            found.add(R.string.twin_base_url_invalid)
+                        else -> Unit
+                    }
+                    if (!TwinProviderRules.isModelNameValid(model)) {
+                        found.add(R.string.twin_provider_model_hint)
+                    }
+                    problems = found
+                    if (found.isEmpty()) {
+                        TwinRuntime.rememberProvider(context, model)
+                        TwinRuntime.setProviderConnected(context, true)
+                        state.model = true
+                        state.screen = Screen.Main
+                    }
                 }
             ) { Text(stringResource(R.string.twin_provider_connect)) }
         }
