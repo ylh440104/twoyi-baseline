@@ -136,9 +136,21 @@ fn main() {
     }
 
     if std::env::args().any(|argument| argument == "--check") {
+        // The bridge must be asked about the names *this guest* imports, not about a
+        // fixed list: otherwise a loadable guest is reported as blocked.
+        let mut wanted: Vec<String> = miniloader::KNOWN_REQUIRED
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect();
+        if let Ok(slots) = miniloader::symbols::jump_slots(&parsed) {
+            for slot in &slots {
+                if !wanted.contains(&slot.symbol) {
+                    wanted.push(slot.symbol.clone());
+                }
+            }
+        }
         let mut table = SymbolTable::new();
-        let names: Vec<&str> = miniloader::KNOWN_REQUIRED.to_vec();
-        table.from_current_process(&names);
+        table.from_current_process(&wanted.iter().map(String::as_str).collect::<Vec<&str>>());
         let verdict = miniloader::preflight::preflight(&parsed, &table, page_size);
         println!(
             "check: {}",

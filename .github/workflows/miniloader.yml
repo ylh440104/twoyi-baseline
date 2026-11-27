@@ -164,10 +164,11 @@ jobs:
           grep -q 'check: segments=' "$RUNNER_TEMP/check-dyn.txt"
           if grep -q 'check: blocked' "$RUNNER_TEMP/check-dyn.txt"; then
             grep -q 'check blocker:' "$RUNNER_TEMP/check-dyn.txt"
-            echo "preflight blocked the dynamic guest (status $dyn_status) with a reason"
-          else
-            echo "preflight reported the dynamic guest as loadable"
+            echo "::error::the dynamic guest should be loadable on this host"
+            exit 1
           fi
+          grep -q 'check: loadable' "$RUNNER_TEMP/check-dyn.txt"
+          echo "preflight cleared the dynamic guest (status $dyn_status)"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
