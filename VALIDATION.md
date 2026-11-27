@@ -139,6 +139,39 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段三十二：在 ARM runner 上原生跑测试 + 交叉编译到 Android（手动触发验证）
+
+- 新增 `.github/workflows/miniloader-android.yml`，两个 job：
+  - **`test`（`ubuntu-24.04-arm`）**：在 **AArch64 上原生**跑整套 68 项测试——映射、重定位、fd 传递
+    现在都在来宾使用的架构上执行过，不只是 x86；并额外用一个本机 `cc` 编译的 aarch64 `_start`
+    程序做端到端映射。实测（run 45950550060 的 `test` job）：
+    ```
+    aarch64
+    entry: 0x40010c
+    entry executable: true
+    map 0x400000..0x401000 file=336 bss=0 prot=5
+    mapped: entry=0xff9e33ba410c segments=1
+    entry bytes: ff 43 00 d1
+    test result: ok — 合计 68 项
+    ```
+  - **`android`（`ubuntu-22.04`）**：用 NDK 交叉编译到 `aarch64-linux-android`，证明这棵 crate
+    也能对 bionic 编译。产物：
+    ```
+    ELF 64-bit LSB pie executable, ARM aarch64
+    4166920 bytes
+    Type: DYN (Position-Independent Executable file)  Machine: AArch64
+    NEEDED: libdl.so, libc.so
+    ```
+- **手动触发验证**：`POST /actions/workflows/miniloader-android.yml/dispatches` → **204**，
+  run 45951126912 `workflow_dispatch` **success**。
+- 过程中两次失败都已修：
+  1. NDK **没有** aarch64 宿主版本（r22 只发 `linux-x86_64`），把 `android` job 放回 x86_64，
+     并改用真实的包名 `android-ndk-r22b-linux-x86_64`（run 45950045223）；
+  2. 新版 Rust 链接 `-lunwind` 而 NDK 不提供 → 固定 **Rust 1.60.0**（与 app 原生库一致），通过
+     （run 45950376996 → 修复后 45950550060）。
+- 边界：`test` job 跑的是 **Linux glibc** 下的原生 ARM，不是 Android bionic；`android` job 只证明
+  **能编译**，没有在设备上运行过。
+
 ## 阶段三十一：数据通路打通——从 fd 读出 ELF 并映射（68 项单测）
 
 - `transport::read_all_fd(fd)`：`fstat` 取长度 + `pread` 循环读满，**不动文件偏移**
