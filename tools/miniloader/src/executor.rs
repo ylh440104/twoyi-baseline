@@ -189,7 +189,9 @@ impl MappedImage {
                 Ok(list) => list,
                 Err(error) => return Err(cleanup(base, len, ExecError::Reloc(error))),
             };
-            if let Err(error) = apply_relative(relocations, bias as i64, base, len) {
+            if let Err(error) =
+                apply_relative(relocations, bias as i64, mapping.reserve_start, base, len)
+            {
                 return Err(cleanup(base, len, error));
             }
         }
@@ -261,17 +263,14 @@ impl Drop for MappedImage {
 fn apply_relative(
     relocations: Vec<Relative>,
     bias: i64,
+    reserve_start: u64,
     base: *mut u8,
     len: usize,
 ) -> Result<(), ExecError> {
-    let base_vaddr = base as u64;
+    // Relocation offsets are link-time addresses, so the slot inside the mapping is
+    // the distance from the reserved span's start, not from the mapping address.
     let result = crate::reloc::apply(&relocations, bias, |offset, value| {
-        let address = match base_vaddr.checked_add(offset) {
-            Some(value) => value,
-            None => return false,
-        };
-        // The slot must land inside this reservation.
-        let slot = match address.checked_sub(base_vaddr) {
+        let slot = match offset.checked_sub(reserve_start) {
             Some(value) => value as usize,
             None => return false,
         };
