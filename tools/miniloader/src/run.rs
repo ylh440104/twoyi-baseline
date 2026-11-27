@@ -341,6 +341,23 @@ pub fn run_diagnosed(
     }
 }
 
+/// The program counter from a signal context.
+///
+/// The context layout is architecture specific; only AArch64 is modelled, because only
+/// an AArch64 guest can run at all.
+#[cfg(target_arch = "aarch64")]
+fn context_pc(context: *mut std::ffi::c_void) -> usize {
+    if context.is_null() {
+        return 0;
+    }
+    unsafe { (*(context as *const libc::ucontext_t)).uc_mcontext.pc as usize }
+}
+
+#[cfg(not(target_arch = "aarch64"))]
+fn context_pc(_context: *mut std::ffi::c_void) -> usize {
+    0
+}
+
 /// Set by the parent, read by the signal handler in the child.
 static FAULT_FD: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
 
@@ -360,11 +377,7 @@ extern "C" fn fault_handler(
         };
         // The program counter comes from the signal context; without it the address
         // alone cannot say which instruction went wrong.
-        let pc = if context.is_null() {
-            0usize
-        } else {
-            unsafe { (*(context as *const libc::ucontext_t)).uc_mcontext.pc as usize }
-        };
+        let pc = context_pc(context);
         let text = format!("{} 0x{:x} 0x{:x}\n", signal, address, pc);
         unsafe {
             libc::write(2, text.as_ptr() as *const libc::c_void, text.len());
