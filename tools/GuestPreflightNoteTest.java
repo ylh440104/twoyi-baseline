@@ -89,7 +89,12 @@ public final class GuestPreflightNoteTest {
         System.err.println("FAIL " + what);
     }
 
-    private static void expectThrows(Runnable action, String what) {
+    /** A body that may throw, so the refusal cases can be expressed directly. */
+    private interface IOAction {
+        void run() throws IOException;
+    }
+
+    private static void expectThrows(IOAction action, String what) {
         try {
             action.run();
             failures++;
