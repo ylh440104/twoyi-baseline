@@ -108,6 +108,7 @@ private fun SectionTitle(text: String) {
 
 @Composable
 private fun BootScreen(state: TwinState) {
+    val context = LocalContext.current
     Column(
         modifier = Modifier
             .fillMaxSize()
