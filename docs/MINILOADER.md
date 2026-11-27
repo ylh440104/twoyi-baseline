@@ -279,3 +279,26 @@ outcome: Signaled(11) fault: signal=11 address=0x200000 pc=0x4ba430 ...
 | 动态链接 bionic `hello` | loadable | **跑通**（打印 + `Exited(7)`） |
 | 真实来宾 `rootfs/init`（ET_EXEC） | loadable | 引导成功，跑到自身代码后因缺少运行环境而崩 |
 | `/system/bin/toybox`（`DT_RELR`） | blocked | 未实现 `DT_RELR` 解析 |
+
+## `DT_RELR` 压缩相对重定位（本轮）
+
+现代 Android 系统二进制用 `DT_RELR` 而不是普通 `DT_RELA` 表：一条表项若最低位为 0 表示**一个**槽地址，
+为 1 则表示一个**位图**，高 63 位说明随后 63 个字里哪些需要重定位。不实现它，这些镜像看起来
+「零重定位」，所有指针都停在链接期地址——这正是 toybox 上一轮 `pc == 0x35230` 的原因。
+
+- `reloc::relr_relocations()` 把 `DT_RELR`/`DT_RELRSZ` 展开成槽地址列表；
+- `executor` 在拷入镜像后对每个槽做一次 `+= bias`（在 `mprotect` 收窄之前）；
+- `preflight` 的 `has_readable_table()` 现在也接受 `DT_RELR`；
+- 新增 3 项测试：位图位序、63 字覆盖范围、无 `DT_RELR` 时为空。
+
+实测（本机 bionic aarch64）四个真实系统二进制**全部 `loadable`**：
+
+| 目标 | 依赖 | 导入 | preflight |
+|---|---|---|---|
+| `hello`（动态 bionic） | 2/2 | 0 unresolved | loadable，**并能跑完** |
+| `/system/bin/sh` | 1/1 | 0 unresolved | loadable |
+| `/system/bin/toybox` | 8/8 | 0 unresolved | loadable |
+| `/system/bin/app_process64` | 13/13 | 0 unresolved | loadable |
+
+`toybox` 跑起来后崩在 `address=0xd`（`x2` 指向一段 `"twoy…"` 字符串），说明它已经进入自身代码；
+再往下需要 bionic 的完整启动环境。`hello` 仍然正常：`hello from bionic, argc=2` + `Exited(7)`。

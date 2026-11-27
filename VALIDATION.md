@@ -139,6 +139,18 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段四十三：`DT_RELR` 压缩重定位，四个系统二进制全部可装载（91 项，本机实测）
+
+- 新增 `reloc::relr_relocations()`：把 `DT_RELR`/`DT_RELRSZ` 展开成槽地址（直接项 + 位图项），
+  `executor` 在每个槽上做 `+= bias`（仍在 `mprotect` 收窄之前），`preflight` 接受 `DT_RELR`。
+  在此之前这类镜像**看起来零重定位**，所有指针停在链接期地址——toybox 上轮 `pc == 0x35230` 即此。
+- 新增 3 项测试（共 **91 项全绿**）：位图位序、63 字覆盖、无 RELR 时为空。
+- **实测四个真实系统二进制全部 `loadable`**：
+  `hello`（2/2 依赖、0 未解析、**并跑完**）、`/system/bin/sh`（1/1、0）、
+  `toybox`（8/8、0）、`app_process64`（13/13、0）。
+- `toybox` 跑起来后崩在 `address=0xd`，已是进入自身代码后的失败；再往下需要 bionic 完整启动环境。
+- 仍未实现：`DT_ANDROID_REL`（旧式 Android 打包格式）、bionic TCB、`dlopen` 语义、resolver 988。
+
 ## 阶段四十二：`ET_EXEC` 固定映射，真实来宾 init 引导成功（88 项，本机实测）
 
 - 新增 `MappedImage::map_fixed()`：用 `MAP_FIXED_NOREPLACE`（`0x100000`）在 `reserve_start`

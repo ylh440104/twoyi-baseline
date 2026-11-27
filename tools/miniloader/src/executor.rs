@@ -239,6 +239,14 @@ impl MappedImage {
             }
         }
 
+        // `DT_RELR` images keep their relative relocations in a compressed table; the
+        // slots must be rebased before any of them is read.
+        if relocate {
+            if let Err(error) = apply_relr(elf, mapping.reserve_start, base, len) {
+                return Err(cleanup(base, len, error));
+            }
+        }
+
         // Jump slots are patched while the image is still writable, like the
         // relative relocations above.
         if let Some(table) = bridge {
@@ -313,6 +321,32 @@ impl Drop for MappedImage {
             libc::munmap(self.base as *mut c_void, self.len);
         }
     }
+}
+
+/// Apply `DT_RELR`: the slots are listed already, so the work is one addition each.
+fn apply_relr(
+    elf: &Elf<'_>,
+    reserve_start: u64,
+    base: *mut u8,
+    len: usize,
+) -> Result<usize, ExecError> {
+    let slots = crate::reloc::relr_relocations(elf).map_err(ExecError::Reloc)?;
+    let bias = (base as u64).wrapping_sub(reserve_start);
+    for slot in &slots {
+        let offset = match slot.checked_sub(reserve_start) {
+            Some(value) => value as usize,
+            None => continue,
+        };
+        if offset + 8 > len {
+            return Err(ExecError::Image(ImageError::ArithmeticOverflow));
+        }
+        unsafe {
+            let pointer = base.add(offset) as *mut u64;
+            let value = std::ptr::read_unaligned(pointer);
+            std::ptr::write_unaligned(pointer, value.wrapping_add(bias));
+        }
+    }
+    Ok(slots.len())
 }
 
 fn apply_relative(

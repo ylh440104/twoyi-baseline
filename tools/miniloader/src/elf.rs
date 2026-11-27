@@ -122,9 +122,9 @@ pub struct RelocTables {
 }
 
 impl RelocTables {
-    /// A plain table the loader can walk, without any packed format.
+    /// A table the loader can walk: a plain `DT_RELA` table or a `DT_RELR` one.
     pub fn has_readable_table(&self) -> bool {
-        self.rela && !self.android_packed
+        (self.rela || self.relr) && !self.android_packed
     }
 }
 

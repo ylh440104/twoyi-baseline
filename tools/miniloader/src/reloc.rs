@@ -146,3 +146,96 @@ pub fn is_rela(type_code: u32) -> bool {
 pub fn is_nobits(type_code: u32) -> bool {
     type_code == SHT_NOBITS
 }
+
+/// Decode `DT_RELR` into the list of slots that must be rebased.
+///
+/// The format is compact: an entry whose low bit is zero is the address of one slot,
+/// and an entry whose low bit is one is a bitmap whose 63 high bits say which of the
+/// following 63 words also need rebasing. Android system binaries use this instead of a
+/// plain `DT_RELA` table, so without it every position-independent system binary looks
+/// like it has no relocations at all.
+pub fn relr_relocations(elf: &Elf<'_>) -> Result<Vec<u64>, RelocError> {
+    let data = elf.data;
+    let (offset, size) = match dynamic_range(data)? {
+        Some(range) => range,
+        None => return Ok(Vec::new()),
+    };
+    let mut relr = 0u64;
+    let mut relr_size = 0u64;
+    for entry in 0..size / 16 {
+        let at = offset + entry * 16;
+        let tag = u64_at(data, at).ok_or(RelocError::BadSectionTable)?;
+        let value = u64_at(data, at + 8).ok_or(RelocError::BadSectionTable)?;
+        match tag {
+            0 => break,
+            36 => relr = value,      // DT_RELR
+            35 => relr_size = value, // DT_RELRSZ
+            _ => {}
+        }
+    }
+    if relr == 0 || relr_size == 0 {
+        return Ok(Vec::new());
+    }
+    let table = relocation_file_offset(elf, relr).ok_or(RelocError::BadSectionTable)?;
+    let count = (relr_size / 8) as usize;
+    if table + relr_size as usize > data.len() {
+        return Err(RelocError::BadSectionTable);
+    }
+
+    let mut slots = Vec::new();
+    let mut where_to: u64 = 0;
+    for index in 0..count {
+        let entry = u64_at(data, table + index * 8).ok_or(RelocError::BadSectionTable)?;
+        if entry & 1 == 0 {
+            where_to = entry;
+            slots.push(where_to);
+            where_to = where_to.wrapping_add(8);
+            continue;
+        }
+        // Bitmap: bit 0 is the marker, bits 1..=63 cover the next 63 words.
+        let mut bits = entry >> 1;
+        while bits != 0 {
+            if bits & 1 == 1 {
+                slots.push(where_to);
+            }
+            where_to = where_to.wrapping_add(8);
+            bits >>= 1;
+        }
+    }
+    Ok(slots)
+}
+
+/// The `PT_DYNAMIC` range, when the image has one.
+fn dynamic_range(data: &[u8]) -> Result<Option<(usize, usize)>, RelocError> {
+    let phoff = u64_at(data, 0x20).ok_or(RelocError::BadSectionTable)? as usize;
+    let phentsize = u16_at(data, 0x36).ok_or(RelocError::BadSectionTable)? as usize;
+    let phnum = u16_at(data, 0x38).ok_or(RelocError::BadSectionTable)? as usize;
+    if phentsize != 56 || phoff + phnum * phentsize > data.len() {
+        return Err(RelocError::BadSectionTable);
+    }
+    for index in 0..phnum {
+        let base = phoff + index * phentsize;
+        if u32_at(data, base).ok_or(RelocError::BadSectionTable)? != 2 {
+            continue;
+        }
+        let offset = u64_at(data, base + 0x08).ok_or(RelocError::BadSectionTable)? as usize;
+        let size = u64_at(data, base + 0x20).ok_or(RelocError::BadSectionTable)? as usize;
+        if offset + size > data.len() {
+            return Err(RelocError::BadSectionTable);
+        }
+        return Ok(Some((offset, size)));
+    }
+    Ok(None)
+}
+
+/// Turn a link-time address into a file offset through whichever segment maps it.
+fn relocation_file_offset(elf: &Elf<'_>, address: u64) -> Option<usize> {
+    elf.segments.iter().find_map(|segment| {
+        let end = segment.vaddr.checked_add(segment.filesz)?;
+        if address >= segment.vaddr && address < end {
+            Some((segment.offset + (address - segment.vaddr)) as usize)
+        } else {
+            None
+        }
+    })
+}

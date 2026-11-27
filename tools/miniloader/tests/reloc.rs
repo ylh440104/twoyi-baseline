@@ -161,3 +161,88 @@ fn mapping_without_relocation_keeps_the_raw_words() {
         "the slot is untouched when relocation is skipped"
     );
 }
+/// ELF with a `DT_RELR` table holding `entries`, at link-time address `relr_vaddr`.
+fn elf_with_relr(relr_vaddr: u64, entries: &[u64]) -> Vec<u8> {
+    let phoff = 64usize;
+    let phentsize = 56usize;
+    let phnum = 2usize;
+    let dynamic_offset = phoff + phentsize * phnum;
+    let table_offset = dynamic_offset + 5 * 16; // 3 tags + DT_NULL, rounded up
+    let total = table_offset + entries.len() * 8;
+
+    let mut out = vec![0u8; total];
+    out[0..4].copy_from_slice(b"\x7fELF");
+    out[4] = 2;
+    out[5] = 1;
+    out[6] = 1;
+    out[0x10..0x12].copy_from_slice(&3u16.to_le_bytes());
+    out[0x12..0x14].copy_from_slice(&0xb7u16.to_le_bytes());
+    out[0x18..0x20].copy_from_slice(&0x2000u64.to_le_bytes());
+    out[0x20..0x28].copy_from_slice(&(phoff as u64).to_le_bytes());
+    out[0x36..0x38].copy_from_slice(&0x38u16.to_le_bytes());
+    out[0x38..0x3a].copy_from_slice(&(phnum as u16).to_le_bytes());
+
+    // One PT_LOAD covering the whole file at vaddr 0.
+    out[phoff..phoff + 4].copy_from_slice(&1u32.to_le_bytes());
+    out[phoff + 4..phoff + 8].copy_from_slice(&5u32.to_le_bytes());
+    out[phoff + 16..phoff + 24].copy_from_slice(&0u64.to_le_bytes());
+    out[phoff + 32..phoff + 40].copy_from_slice(&(total as u64).to_le_bytes());
+    out[phoff + 40..phoff + 48].copy_from_slice(&(total as u64).to_le_bytes());
+    out[phoff + 48..phoff + 56].copy_from_slice(&8u64.to_le_bytes());
+
+    let dyn_ph = phoff + phentsize;
+    out[dyn_ph..dyn_ph + 4].copy_from_slice(&2u32.to_le_bytes());
+    out[dyn_ph + 8..dyn_ph + 16].copy_from_slice(&(dynamic_offset as u64).to_le_bytes());
+    out[dyn_ph + 16..dyn_ph + 24].copy_from_slice(&(dynamic_offset as u64).to_le_bytes());
+    out[dyn_ph + 32..dyn_ph + 40].copy_from_slice(&80u64.to_le_bytes());
+    out[dyn_ph + 40..dyn_ph + 48].copy_from_slice(&80u64.to_le_bytes());
+
+    let mut at = dynamic_offset;
+    let mut put = |tag: u64, value: u64| {
+        out[at..at + 8].copy_from_slice(&tag.to_le_bytes());
+        out[at + 8..at + 16].copy_from_slice(&value.to_le_bytes());
+        at += 16;
+    };
+    put(36, relr_vaddr); // DT_RELR
+    put(35, (entries.len() * 8) as u64); // DT_RELRSZ
+    put(0, 0);
+    let _ = &mut at;
+
+    for (index, entry) in entries.iter().enumerate() {
+        let at = table_offset + index * 8;
+        out[at..at + 8].copy_from_slice(&entry.to_le_bytes());
+    }
+    out
+}
+
+#[test]
+fn relr_entries_become_slot_addresses() {
+    use miniloader::reloc::relr_relocations;
+    // Two direct entries then a bitmap: 0x1000, 0x2000, and bit 2 names 0x2010.
+    let entries = [0x1000u64, 0x2000, (1u64 << 2) | 1];
+    let bytes = elf_with_relr(0x100, &entries);
+    let elf = Elf::parse(&bytes).expect("parse");
+    let slots = relr_relocations(&elf).expect("relr");
+    assert_eq!(slots, vec![0x1000, 0x2000, 0x2010]);
+}
+
+#[test]
+fn a_relr_bitmap_covers_63_words() {
+    use miniloader::reloc::relr_relocations;
+    // One address, then a bitmap whose highest bit is set: the last of 63 words.
+    let entries = [0x1000u64, (1u64 << 63) | 1];
+    let bytes = elf_with_relr(0x100, &entries);
+    let elf = Elf::parse(&bytes).expect("parse");
+    let slots = relr_relocations(&elf).expect("relr");
+    assert_eq!(slots.len(), 2);
+    assert_eq!(slots[0], 0x1000);
+    assert_eq!(slots[1], 0x1000 + 8 + 62 * 8, "bit 63 names the 63rd word");
+}
+
+#[test]
+fn an_image_without_relr_has_no_slots() {
+    use miniloader::reloc::relr_relocations;
+    let bytes = elf_with_relr(0x100, &[]);
+    let elf = Elf::parse(&bytes).expect("parse");
+    assert!(relr_relocations(&elf).expect("relr").is_empty());
+}
