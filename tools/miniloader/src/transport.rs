@@ -80,7 +80,8 @@ pub fn send_frame(fd: RawFd, payload: &[u8], attach: Option<RawFd>) -> io::Resul
             let cmsg = control.as_mut_ptr() as *mut libc::cmsghdr;
             (*cmsg).cmsg_level = libc::SOL_SOCKET;
             (*cmsg).cmsg_type = libc::SCM_RIGHTS;
-            (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<RawFd>() as u32) as usize;
+            (*cmsg).cmsg_len =
+                libc::CMSG_LEN(std::mem::size_of::<RawFd>() as u32) as usize;
             let data = control.as_mut_ptr().add(cmsg_data_offset()) as *mut RawFd;
             *data = descriptor;
         }
@@ -148,12 +149,12 @@ pub fn close_fd(fd: RawFd) {
 
 fn cmsg_data_offset() -> usize {
     // CMSG_LEN(0) is exactly the size of the header including trailing padding.
-    libc::CMSG_LEN(0) as usize
+    unsafe { libc::CMSG_LEN(0) as usize }
 }
 
 fn control_len(with_fd: bool) -> usize {
     if !with_fd {
         return 0;
     }
-    libc::CMSG_SPACE(std::mem::size_of::<RawFd>() as u32) as usize
+    unsafe { libc::CMSG_SPACE(std::mem::size_of::<RawFd>() as u32) as usize }
 }
