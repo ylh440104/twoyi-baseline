@@ -139,6 +139,31 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段二十五：真实 aarch64 动态导入 + 弱符号修正（53 项单测）
+
+- CLI 新增导入报告：对给的 ELF 列出 `JUMP_SLOT` 数量、去重名字数、本宿主能提供几个，
+  以及**缺哪些**；能提供的名字直接列出来。
+- CI 里额外交叉编译一个**动态链接**的 aarch64 程序（`malloc`/`snprintf`/`puts`/`free`），
+  让桥去面对真实导入表。实测输出（run 45934239931）：
+  ```
+  imports: 8 slot(s), 8 distinct name(s), 7 servable here
+  imports servable: __libc_start_main __cxa_finalize __snprintf_chk malloc abort puts free
+  imports weak (may stay zero): __gmon_start__
+  ```
+- **这条证据立刻抓出一个真 bug**：`__gmon_start__` 是**弱未定义符号**，真实动态链接器允许它
+  解析为 0；而我的 `apply_jump_slots` 把任何未解析名字都当致命错误，等于**拒绝加载一个正常的程序**。
+  修法：
+  - `DynSym` 增加 `binding`（`STB_LOCAL/GLOBAL/WEAK/OTHER`，来自 `st_info` 高 4 位），
+    `JumpSlot` 增加 `weak`；
+  - `apply_jump_slots` 与 executor 的补丁循环都改为「**弱未解析 → 写 0**，强未解析 → 报错」；
+  - CLI 把弱符号缺口单独列为「may stay zero」，避免和真正阻塞的缺失混为一谈。
+- 新增 2 项测试：`the_binding_is_recorded`（GLOBAL/WEAK 被正确读出）、
+  `a_weak_import_may_stay_unresolved`（弱导入未解析时写入 0 且**不**让加载失败）。
+- CI 全绿：**53 项**（symbols 8 + bridge 6 + reloc 7 + executor 4 + image 4 + plan 8 + proto 6 +
+  handshake 5 + resolver 5），运行 45934239931；host 回归 45934239938 亦通过。
+- 边界：`__snprintf_chk` 这类 fortify 符号说明宿主提供的是 **glibc 的名字**，不是 bionic；
+  真机上桥必须换成 bionic 的符号集，这一点没变。
+
 ## 阶段二十四：宿主符号桥（51 项单测）
 
 - 新增 `tools/miniloader/src/bridge.rs`：`SymbolTable` 是「名字 → 地址」的显式表，
