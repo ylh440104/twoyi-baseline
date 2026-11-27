@@ -139,6 +139,24 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段三十四：一键设备取证脚本
+
+- 新增 `tools/device_probe.sh`：一条命令把验证需要的信息全部收集到一个文件，避免来回问答。
+  它**只读**——不安装、不清数据、不启动任何东西；除非显式给 `--loader`，否则连 push 都不做。
+- 采集内容分八节：
+  1. 设备身份（型号/SDK/ABI/内核）；
+  2. root 与包状态（`id` / `su 0 id` / `versionName` / `primaryCpuAbi`）；
+  3. 来宾数据布局（`rootfs`、`slots`、`dev/input`、`gfxstream-vulkan`）；
+  4. **来宾 init 的 ELF 头**与 `build.prop` ——这决定镜像到底能不能装载；
+  5. 应用自己记录的 `preflight.txt`、`log.txt`、`last_kmsg.txt`；
+  6. 进程与最近崩溃（`logcat -b crash`）；
+  7. 可选：推入自研 loader 诊断并跑 `--check` / `--map`（也对真实 `rootfs/init` 跑一次）；
+  8. 报告里每节说明该怎么读。
+- 支持 `-s SERIAL` 选设备、`--loader PATH` 附带二进制、`--dry-run` 只校验脚本、`--help` 看用法；
+  失败不致命（记录 `(exited N)` 继续）。
+- CI 把它纳入 host 回归：`bash -n` + `--dry-run` + `--help`，实测
+  `dry run: script parses, adb is not touched`（run 45957695981 全绿；Android 构建同批通过）。
+
 ## 阶段三十三：设备可直接验证的两个产物（CI 自发布）
 
 用户有设备，于是把两条验证路径都做成**可直接拿到的产物**：
