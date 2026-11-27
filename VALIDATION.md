@@ -139,6 +139,29 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段二十九：真的传一个文件描述符（`SCM_RIGHTS`，63 项单测）
+
+- 这段是整个握手里**唯一不能用字节流证明**的部分：官方 loader 的 `socketpair(1, 0x80005)`
+  之后，第二次收发带的是**辅助数据里的一枚 fd**（`docs/LOADER_PROTOCOL.md` §1）。
+- 新增 `tools/miniloader/src/transport.rs`：
+  - `SocketPair::new()` 建 `socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC)`，
+    **与反汇编里的 `0x80005` 完全对应**；
+  - `send_frame(fd, payload, Some(fd))` 把描述符放进 `SCM_RIGHTS` 一起发出；
+  - `recv_frame(fd, max)` 取回数据**与随行的描述符**；
+  - `dup_here(fd)` 复制描述符，`close_fd(fd)` 关闭收到的描述符。
+- `tests/transport.rs` 4 项（Linux 上真跑）：无 fd 帧往返、**带 fd 的帧取回后能 `pread` 出原内容**
+  （验证对方拿到的确实指向同一文件，不是编号巧合）、两帧各带各的 fd 且互不相同、
+  `dup` 得到独立描述符且关掉原件不影响副本。
+- CI 运行 45943103988 全绿：**63 项**（transport 4 + preflight 6 + symbols 8 + bridge 6 + reloc 7 +
+  executor 4 + image 4 + plan 8 + proto 6 + handshake 5 + resolver 5）。
+- 期间连挂三次都是我自己的类型问题，值得记下：
+  1. `libc::CMSG_LEN`/`CMSG_SPACE` 是 `unsafe fn`，必须放 `unsafe` 块（run 45941532430）；
+  2. `libc::msghdr` 用结构体字面量初始化在这版 `libc` 上编译不过，改成 `mem::zeroed()` 再逐字段赋值；
+  3. 测试导入 `miniloader::transport::dup_here` 但当时只把它做在 `SocketPair` 的关联函数里，
+     补了同名自由函数（run 45942127565）。
+- 边界：**只在 CI 的 Linux 上验证过**；Android 的 `SOCK_SEQPACKET` 行为、以及真机上
+  「谁来提供这枚 fd」都还没跑过。
+
 ## 阶段二十八：体检结论落盘并进入诊断包（host 用例 + 构建通过）
 
 - 新增 `GuestPreflightNote.java`（纯 Java，`android.` 与 `R.string` 计数均为 0）：把体检结论写进
