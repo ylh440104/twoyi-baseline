@@ -60,7 +60,7 @@ fn elf_with_import(import_name: &str, slot_vaddr: u64) -> Vec<u8> {
 
     let sym = dynsym_offset + SYM_ENTRY; // skip the null symbol
     out[sym..sym + 4].copy_from_slice(&(name_offset as u32).to_le_bytes());
-    out[sym + 4] = 0x12;
+    out[sym + 4] = 0x12; // STB_GLOBAL | STT_FUNC
 
     out[rela_offset..rela_offset + 8].copy_from_slice(&slot_vaddr.to_le_bytes());
     let r_info = (1u64 << 32) | R_AARCH64_JUMP_SLOT as u64;

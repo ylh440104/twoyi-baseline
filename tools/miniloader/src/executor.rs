@@ -329,6 +329,8 @@ fn apply_jump_slots(
     for slot in slots {
         let address = match table.resolve(&slot.symbol) {
             Some(value) => value,
+            // Weak imports may stay unresolved and become zero; strong ones cannot.
+            None if slot.weak => 0,
             None => {
                 return Err(ExecError::Unresolved {
                     name: slot.symbol.clone(),

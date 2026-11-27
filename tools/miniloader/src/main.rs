@@ -64,9 +64,16 @@ fn main() {
             let found = table.from_current_process(
                 &names.iter().map(String::as_str).collect::<Vec<&str>>(),
             );
-            let missing: Vec<&String> = names
+            // A weak import that stays unresolved is normal; only strong ones block.
+            let missing: Vec<&String> = slots
                 .iter()
-                .filter(|name| table.resolve(name).is_none())
+                .filter(|slot| !slot.weak && table.resolve(&slot.symbol).is_none())
+                .map(|slot| &slot.symbol)
+                .collect();
+            let missing_weak: Vec<&String> = slots
+                .iter()
+                .filter(|slot| slot.weak && table.resolve(&slot.symbol).is_none())
+                .map(|slot| &slot.symbol)
                 .collect();
             println!(
                 "imports: {} slot(s), {} distinct name(s), {} servable here",
@@ -77,9 +84,18 @@ fn main() {
             if !found.is_empty() {
                 println!("imports servable: {}", found.join(" "));
             }
+            if !missing_weak.is_empty() {
+                println!(
+                    "imports weak (may stay zero): {}",
+                    missing_weak
+                        .iter()
+                        .map(|name| name.as_str())
+                        .collect::<Vec<&str>>()
+                        .join(" ")
+                );
+            }
             if missing.is_empty() {
-                println!("imports resolved: all");
-            } else {
+                println!("imports resolved: all strong");
                 println!(
                     "imports missing: {}",
                     missing

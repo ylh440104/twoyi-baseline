@@ -19,6 +19,7 @@ const SYM_ENTRY: usize = 24;
 struct Import<'a> {
     name: &'a str,
     slot_vaddr: u64,
+    weak: bool,
 }
 
 fn build_elf(imports: &[Import<'_>]) -> Vec<u8> {
@@ -30,12 +31,12 @@ fn build_elf(imports: &[Import<'_>]) -> Vec<u8> {
     let mut names = Vec::new();
     let mut cursor = 1usize; // index 0 is the empty name
     for import in imports {
-        names.push((import.name, cursor));
+        names.push((import.name, cursor, import.weak));
         cursor += import.name.len() + 1;
     }
     // The string table must hold exactly the names used, in that order.
     let mut table = vec![0u8];
-    for (name, _) in &names {
+    for (name, _, _) in &names {
         table.extend_from_slice(name.as_bytes());
         table.push(0);
     }
@@ -80,10 +81,11 @@ fn build_elf(imports: &[Import<'_>]) -> Vec<u8> {
     out[dynstr_offset..dynstr_offset + table.len()].copy_from_slice(&table);
 
     // .dynsym: null symbol then the imports, each undefined (shndx 0).
-    for (index, (name, name_offset)) in names.iter().enumerate() {
+    for (index, (_, name_offset, weak_flag)) in names.iter().enumerate() {
         let at = dynsym_offset + (index + 1) * SYM_ENTRY;
         out[at..at + 4].copy_from_slice(&(*name_offset as u32).to_le_bytes());
-        out[at + 4] = 0x12; // GLOBAL | FUNC
+        let binding: u8 = if *weak_flag { 2 } else { 1 }; // STB_WEAK | STB_GLOBAL
+        out[at + 4] = (binding << 4) | 0x2; // function
         out[at + 6..at + 8].copy_from_slice(&0u16.to_le_bytes());
     }
 
@@ -124,10 +126,12 @@ fn reads_dynamic_symbols() {
         Import {
             name: "write",
             slot_vaddr: 0x2000,
+            weak: false,
         },
         Import {
             name: "close",
             slot_vaddr: 0x2008,
+            weak: false,
         },
     ]);
     let elf = Elf::parse(&bytes).expect("parse");
@@ -146,10 +150,12 @@ fn reads_jump_slots_with_their_names() {
         Import {
             name: "write",
             slot_vaddr: 0x2000,
+            weak: false,
         },
         Import {
             name: "close",
             slot_vaddr: 0x2008,
+            weak: false,
         },
     ]);
     let elf = Elf::parse(&bytes).expect("parse");
@@ -166,6 +172,7 @@ fn patches_slots_through_the_resolver() {
     let bytes = build_elf(&[Import {
         name: "write",
         slot_vaddr: 0x2000,
+        weak: false,
     }]);
     let elf = Elf::parse(&bytes).expect("parse");
     let slots = jump_slots(&elf).expect("slots");
@@ -188,6 +195,7 @@ fn an_unresolved_import_is_reported() {
     let bytes = build_elf(&[Import {
         name: "write",
         slot_vaddr: 0x2000,
+        weak: false,
     }]);
     let elf = Elf::parse(&bytes).expect("parse");
     let slots = jump_slots(&elf).expect("slots");
@@ -200,6 +208,7 @@ fn a_rejected_write_is_reported() {
     let bytes = build_elf(&[Import {
         name: "write",
         slot_vaddr: 0x2000,
+        weak: false,
     }]);
     let elf = Elf::parse(&bytes).expect("parse");
     let slots = jump_slots(&elf).expect("slots");
@@ -215,4 +224,48 @@ fn a_symbol_free_image_reads_as_empty() {
     let elf = Elf::parse(&bytes).expect("parse");
     assert!(dynamic_symbols(&elf).expect("symbols").is_empty());
     assert!(jump_slots(&elf).expect("slots").is_empty());
+}
+#[test]
+fn the_binding_is_recorded() {
+    use miniloader::symbols::Binding;
+    let bytes = build_elf(&[
+        Import {
+            name: "write",
+            slot_vaddr: 0x2000,
+            weak: false,
+        },
+        Import {
+            name: "__gmon_start__",
+            slot_vaddr: 0x2008,
+            weak: true,
+        },
+    ]);
+    let elf = Elf::parse(&bytes).expect("parse");
+    let symbols = dynamic_symbols(&elf).expect("symbols");
+    assert_eq!(symbols[1].binding, Binding::Global);
+    assert_eq!(symbols[2].binding, Binding::Weak);
+    let slots = jump_slots(&elf).expect("slots");
+    assert!(!slots[0].weak);
+    assert!(slots[1].weak);
+}
+
+#[test]
+fn a_weak_import_may_stay_unresolved() {
+    // __gmon_start__ is the real-world case: glibc does not export it for dlsym, and
+    // a weak undefined symbol is allowed to become zero.
+    let bytes = build_elf(&[Import {
+        name: "__gmon_start__",
+        slot_vaddr: 0x2000,
+        weak: true,
+    }]);
+    let elf = Elf::parse(&bytes).expect("parse");
+    let slots = jump_slots(&elf).expect("slots");
+    let mut writes = Vec::new();
+    let patched = apply_jump_slots(&slots, |_| None, |offset, value| {
+        writes.push((offset, value));
+        true
+    })
+    .expect("a weak import must not fail the load");
+    assert_eq!(patched, 1);
+    assert_eq!(writes, vec![(0x2000, 0)], "a weak miss resolves to zero");
 }

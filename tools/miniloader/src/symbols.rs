@@ -19,6 +19,26 @@ const ELF64_HEADER: usize = 64;
 const SECTION_HEADER: usize = 64;
 const SYM_ENTRY: usize = 24;
 
+/// ELF symbol binding, from `st_info`'s high nibble.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Binding {
+    Local,
+    Global,
+    Weak,
+    Other(u8),
+}
+
+impl Binding {
+    fn from_st_info(st_info: u8) -> Binding {
+        match st_info >> 4 {
+            0 => Binding::Local,
+            1 => Binding::Global,
+            2 => Binding::Weak,
+            other => Binding::Other(other),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DynSym {
     pub name: String,
@@ -27,6 +47,7 @@ pub struct DynSym {
     pub size: u64,
     /// `SHN_UNDEF` when the symbol must be resolved by the host.
     pub undefined: bool,
+    pub binding: Binding,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +55,9 @@ pub struct JumpSlot {
     /// Link-time address of the slot to patch.
     pub offset: u64,
     pub symbol: String,
+    /// A weak import may legitimately stay unresolved; the loader then writes zero,
+    /// which is what a real dynamic linker does. A strong import must resolve.
+    pub weak: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,6 +94,7 @@ pub fn dynamic_symbols(elf: &Elf<'_>) -> Result<Vec<DynSym>, SymError> {
         for entry in 0..count {
             let at = section.sh_offset + entry * SYM_ENTRY;
             let st_name = u32_at(elf.data, at).ok_or(SymError::BadDynsym { index })? as usize;
+            let st_info = *elf.data.get(at + 4).ok_or(SymError::BadDynsym { index })?;
             let st_shndx = u16_at(elf.data, at + 6).ok_or(SymError::BadDynsym { index })?;
             let st_value = u64_at(elf.data, at + 8).ok_or(SymError::BadDynsym { index })?;
             let st_size = u64_at(elf.data, at + 16).ok_or(SymError::BadDynsym { index })?;
@@ -80,6 +105,7 @@ pub fn dynamic_symbols(elf: &Elf<'_>) -> Result<Vec<DynSym>, SymError> {
                 value: st_value,
                 size: st_size,
                 undefined: st_shndx == 0,
+                binding: Binding::from_st_info(st_info),
             });
         }
     }
@@ -123,11 +149,13 @@ pub fn jump_slots(elf: &Elf<'_>) -> Result<Vec<JumpSlot>, SymError> {
             let symbol_index = (r_info >> 32) as usize;
             let symbol_at = symbols.sh_offset + symbol_index * SYM_ENTRY;
             let st_name = u32_at(elf.data, symbol_at).ok_or(SymError::BadRela { index })? as usize;
+            let st_info = *elf.data.get(symbol_at + 4).ok_or(SymError::BadRela { index })?;
             let name = string_at(elf.data, strings.sh_offset, strings.sh_size, st_name)
                 .ok_or(SymError::BadRela { index })?;
             out.push(JumpSlot {
                 offset: r_offset,
                 symbol: name,
+                weak: Binding::from_st_info(st_info) == Binding::Weak,
             });
         }
     }
@@ -148,6 +176,9 @@ pub fn apply_jump_slots(
     for slot in slots {
         let address = match resolve(&slot.symbol) {
             Some(value) => value,
+            // A weak import that the host lacks resolves to zero, as a real dynamic
+            // linker does; a strong one aborts the load.
+            None if slot.weak => 0,
             None => return Err(SymError::BadRela { index: 0 }),
         };
         if !write(slot.offset, address) {
