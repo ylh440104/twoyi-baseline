@@ -12,8 +12,14 @@ use crate::elf::Elf;
 const SHT_STRTAB: u32 = 3;
 const SHT_RELA: u32 = 4;
 const SHT_DYNSYM: u32 = 11;
-/// `R_AARCH64_JUMP_SLOT`.
+/// `R_AARCH64_JUMP_SLOT`: a function import, patched through the PLT.
 pub const R_AARCH64_JUMP_SLOT: u32 = 1026;
+/// `R_AARCH64_GLOB_DAT`: a data import, patched in the GOT.
+///
+/// Both are symbol relocations and both must hold the resolved address; missing this
+/// one leaves imported *data* — `stdout`, `stderr`, `environ` — pointing at zero, so the
+/// guest dereferences null the first time it touches them.
+pub const R_AARCH64_GLOB_DAT: u32 = 1025;
 
 const ELF64_HEADER: usize = 64;
 const SECTION_HEADER: usize = 64;
@@ -112,7 +118,10 @@ pub fn dynamic_symbols(elf: &Elf<'_>) -> Result<Vec<DynSym>, SymError> {
     Ok(out)
 }
 
-/// Every `R_AARCH64_JUMP_SLOT`, paired with the name it must be resolved to.
+/// Every symbol relocation — `JUMP_SLOT` and `GLOB_DAT` — with the name to resolve.
+///
+/// The two kinds differ only in what the guest does with the resolved address (call it
+/// versus read through it); the loader's job is the same.
 pub fn jump_slots(elf: &Elf<'_>) -> Result<Vec<JumpSlot>, SymError> {
     let sections = sections(elf)?;
     let mut out = Vec::new();
@@ -143,7 +152,8 @@ pub fn jump_slots(elf: &Elf<'_>) -> Result<Vec<JumpSlot>, SymError> {
             let at = section.sh_offset + entry * 24;
             let r_offset = u64_at(elf.data, at).ok_or(SymError::BadRela { index })?;
             let r_info = u64_at(elf.data, at + 8).ok_or(SymError::BadRela { index })?;
-            if (r_info & 0xffff_ffff) as u32 != R_AARCH64_JUMP_SLOT {
+            let kind = (r_info & 0xffff_ffff) as u32;
+            if kind != R_AARCH64_JUMP_SLOT && kind != R_AARCH64_GLOB_DAT {
                 continue;
             }
             let symbol_index = (r_info >> 32) as usize;

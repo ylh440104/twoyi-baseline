@@ -26,6 +26,29 @@ pub enum Outcome {
     Signaled(i32),
 }
 
+/// The register state at the moment a guest died, read through ptrace.
+///
+/// This is what a guest's own crash handler cannot hide: the guest may install its own
+/// SIGSEGV handler (bionic does), but the tracer still sees the stop and can read the
+/// registers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Trap {
+    pub signal: i32,
+    /// Faulting address from `PTRACE_GETSIGINFO`.
+    pub address: u64,
+    pub pc: u64,
+    pub sp: u64,
+    /// `x0`..`x30`.
+    pub regs: [u64; 31],
+}
+
+impl Trap {
+    /// Register by index, `0`..=`30` for `x0`..`x30`.
+    pub fn register(&self, index: usize) -> Option<u64> {
+        self.regs.get(index).copied()
+    }
+}
+
 /// Where a crashed guest died, which is what a real loader reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Fault {
@@ -59,6 +82,153 @@ impl std::fmt::Display for RunError {
 /// Where the guest's stack is placed. Separate from the image so a runaway guest
 /// cannot overwrite its own code through the stack.
 const STACK_RESERVE: usize = 1 << 20; // 1 MiB
+
+/// Run `bytes` under ptrace and report the register state if it dies.
+///
+/// The guest may install its own signal handlers — bionic's startup does — which makes a
+/// handler inside the child unreliable. A tracer is not affected: it sees the stop and
+/// reads the registers directly, so the faulting instruction and the arguments are
+/// always available.
+pub fn run_traced(
+    bytes: &[u8],
+    page_size: u64,
+    bridge: &SymbolTable,
+    argv: &[&str],
+    envp: &[&str],
+) -> Result<(Outcome, Option<Trap>), RunError> {
+    let elf = Elf::parse(bytes).map_err(|error| RunError::Unloadable(format!("{error:?}")))?;
+    if stack::auxv_for(&elf, 0, page_size).is_none() {
+        return Err(RunError::Unloadable(String::from(
+            "no program headers to hand over",
+        )));
+    }
+
+    let pid = unsafe { libc::fork() };
+    match pid {
+        -1 => Err(RunError::System(io::Error::last_os_error())),
+        0 => {
+            // Let the parent trace us, then wait for it to start us again.
+            unsafe {
+                libc::ptrace(
+                    libc::PTRACE_TRACEME,
+                    0,
+                    std::ptr::null_mut::<libc::c_void>(),
+                    std::ptr::null_mut::<libc::c_void>(),
+                );
+                libc::raise(libc::SIGSTOP);
+            }
+            let status = match run_child(bytes, page_size, bridge, argv, envp) {
+                Ok(()) => 127,
+                Err(_) => 126,
+            };
+            unsafe { libc::_exit(status) }
+        }
+        child => trace_child(child),
+    }
+}
+
+/// Drive the traced child: resume after the initial stop, then report how it ended.
+fn trace_child(child: libc::pid_t) -> Result<(Outcome, Option<Trap>), RunError> {
+    let mut status: libc::c_int = 0;
+    // The child stops itself first so the tracer can resume it.
+    if unsafe { libc::waitpid(child, &mut status, 0) } != child {
+        return Err(RunError::System(io::Error::last_os_error()));
+    }
+    if unsafe { libc::ptrace(libc::PTRACE_CONT, child, std::ptr::null_mut::<libc::c_void>(), std::ptr::null_mut::<libc::c_void>()) } != 0 {
+        return Err(RunError::System(io::Error::last_os_error()));
+    }
+
+    loop {
+        let waited = unsafe { libc::waitpid(child, &mut status, 0) };
+        if waited < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(RunError::System(error));
+        }
+        if libc::WIFEXITED(status) || libc::WIFSIGNALED(status) {
+            return Ok((decode_status(status), None));
+        }
+        if libc::WIFSTOPPED(status) {
+            let signal = libc::WSTOPSIG(status);
+            // A plain SIGTRAP/SIGSTOP is a delivery we caused, not a guest fault.
+            if signal == libc::SIGTRAP || signal == libc::SIGSTOP {
+                unsafe {
+                    libc::ptrace(
+                        libc::PTRACE_CONT,
+                        child,
+                        std::ptr::null_mut::<libc::c_void>(),
+                        std::ptr::null_mut::<libc::c_void>(),
+                    );
+                }
+                continue;
+            }
+            let trap = read_trap(child, signal);
+            // The guest is already dead in every way that matters; stop waiting on it.
+            unsafe {
+                libc::ptrace(
+                    libc::PTRACE_KILL,
+                    child,
+                    std::ptr::null_mut::<libc::c_void>(),
+                    std::ptr::null_mut::<libc::c_void>(),
+                );
+                libc::waitpid(child, &mut status, 0);
+            }
+            let outcome = match trap {
+                Some(trap) => Outcome::Signaled(trap.signal),
+                None => Outcome::Signaled(signal),
+            };
+            return Ok((outcome, trap));
+        }
+    }
+}
+
+/// Read the registers and the faulting address of a stopped child.
+fn read_trap(child: libc::pid_t, signal: i32) -> Option<Trap> {
+    let mut registers: libc::user_regs_struct = unsafe { std::mem::zeroed() };
+    let mut vector = libc::iovec {
+        iov_base: &mut registers as *mut _ as *mut libc::c_void,
+        iov_len: std::mem::size_of::<libc::user_regs_struct>(),
+    };
+    // NT_PRSTATUS is 1 on every Linux architecture the loader targets.
+    let read = unsafe {
+        libc::ptrace(
+            libc::PTRACE_GETREGSET,
+            child,
+            1 as *mut libc::c_void,
+            &mut vector as *mut _ as *mut libc::c_void,
+        )
+    };
+    if read != 0 {
+        return None;
+    }
+
+    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+    let got = unsafe {
+        libc::ptrace(
+            libc::PTRACE_GETSIGINFO,
+            child,
+            std::ptr::null_mut::<libc::c_void>(),
+            &mut info as *mut _ as *mut libc::c_void,
+        )
+    };
+    let address = if got == 0 {
+        unsafe { *((&info as *const libc::siginfo_t as *const u8).add(16) as *const usize) as u64 }
+    } else {
+        0
+    };
+
+    let mut regs = [0u64; 31];
+    regs.copy_from_slice(&registers.regs[..31]);
+    Some(Trap {
+        signal,
+        address,
+        pc: registers.pc as u64,
+        sp: registers.sp as u64,
+        regs,
+    })
+}
 
 /// Run `bytes` and, when it dies from a signal, report where.
 ///

@@ -211,3 +211,38 @@ fork 之后它仍指向宿主 Termux 线程的 TCB，来宾按自己的 TLS 偏�
 
 **结论**：真实 bionic 程序要跑起来，需要一个**符合 bionic 布局的 TCB**（`pthread_internal_t`、
 `bionic_tls`、`dtv`），这不是猜得出来的，得从 bionic 的头部信息里取；在此之前 TLS 这一项是空缺。
+
+## 第一个真实 bionic 程序跑起来了（本轮）
+
+不再猜 TLS，而是换了一个可控的调试对象：用 Termux 的 clang 编一个**动态链接的 bionic 程序**
+（`hello`，5 个导入），它的符号正好由同一套宿主 bionic 提供，于是最小化变量。
+
+1. 加 `run_traced()`：父进程 **ptrace** 子进程，`PTRACE_GETREGSET` 取 `user_regs_struct`
+   （`x0..x30/sp/pc`），`PTRACE_GETSIGINFO` 取 `si_addr`。这样**来宾自己装信号处理器也挡不住**取证。
+   寄存器一看就清楚了：`pc = entry+0x120`、`x8 = 0`、`si_addr = 0`。
+2. 对着反汇编看那条指令：`ldr x0, [x8]`（读 `stdout`）——`x8` 是 `stdout` 的 GOT 槽，值为 0。
+3. 根因：`stdout` 是**数据符号**，走 `R_AARCH64_GLOB_DAT`(1025)，而我只处理了
+   `R_AARCH64_JUMP_SLOT`(1026)。**数据导入全都没解析**。
+
+补上 `GLOB_DAT` 之后：
+
+```
+$ cargo run --example runinit -- hello a b
+libraries: 2/2 opened
+imports: 0 unresolved of 6
+hello from bionic, argc=3          <-- 来宾自己打印的
+outcome: Exited(7)                 <-- 来宾自己的退出码
+```
+
+**这是第一个真实 bionic 二进制在自研 loader 上跑完并正确退出**，argv 也正确（argc=3）。
+
+## 还有两种真实镜像不能装（已如实报告）
+
+| 目标 | 现状 | 原因 |
+|---|---|---|
+| 手写 guests、`hello` | **跑通** | 普通 `DT_RELA` 表 |
+| `/system/bin/toybox` | preflight **blocked** | 用 **`DT_RELR`**（压缩相对重定位），我们读不了 |
+| 真实来宾 `rootfs/init` | preflight **blocked** | **`ET_EXEC`**，必须映射到链接地址 `0x400000` |
+
+`preflight` 现在多了两个阻塞项 `NeedsFixedMapping` 与 `UnreadableRelocations`，
+不再是「莫名 SIGSEGV」，而是明确的「这个镜像我还没法装，因为 …」。

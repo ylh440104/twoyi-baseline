@@ -139,6 +139,28 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段四十一：第一个真实 bionic 程序跑通（86 项，本机实测）
+
+- 换可控对象：用 Termux clang 编一个**动态链接 bionic** 的最小程序（`hello`，6 个导入），
+  符号正好由宿主 bionic 提供。
+- 新增 `run::run_traced()`：**ptrace** 子进程，`PTRACE_GETREGSET`(`user_regs_struct` 272 字节)
+  取 `x0..x30/sp/pc`，`PTRACE_GETSIGINFO` 取 `si_addr`——**来宾自装信号处理器也挡不住取证**。
+- 取证定位到根因：`pc=entry+0x120`、`x8=0`、`si_addr=0`，对应指令 `ldr x0,[x8]`（读 `stdout`），
+  GOT 槽为 0。原因是 `stdout` 是**数据符号**，走 `R_AARCH64_GLOB_DAT`(1025)，而只处理了
+  `R_AARCH64_JUMP_SLOT`(1026)，**数据导入全都没解析**。
+- 补上 `GLOB_DAT` 后实测：
+  ```
+  libraries: 2/2 opened
+  imports: 0 unresolved of 6
+  hello from bionic, argc=3
+  outcome: Exited(7)
+  ```
+  **第一个真实 bionic 二进制在自研 loader 上完整运行并正确退出。**
+- 顺带如实报告两种装不了的镜像：`toybox` 用 **`DT_RELR`**、真实 `init` 是 **`ET_EXEC`**
+  （须映射到 `0x400000`）。`preflight` 新增 `NeedsFixedMapping` 与 `UnreadableRelocations` 两个阻塞项，
+  `Elf` 新增 `elf_type` 与 `relocation_tables`。
+- 新增 2 项测试（共 **86 项全绿**）：ET_EXEC 被判 `NeedsFixedMapping`、ET_DYN 不受影响。
+
 ## 阶段四十：TLS/TCB 尝试与边界（84 项，本机 bionic 实测）
 
 - `Fault` 增加 `pc`：从 `ucontext.uc_mcontext.pc` 取，`runinit` 会把 PC 换算成文件偏移。

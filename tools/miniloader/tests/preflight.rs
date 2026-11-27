@@ -39,6 +39,7 @@ fn elf_with_imports(imports: &[(&str, bool)]) -> Vec<u8> {
     out[4] = 2;
     out[5] = 1;
     out[6] = 1;
+    out[0x10..0x12].copy_from_slice(&3u16.to_le_bytes()); // ET_DYN
     out[0x12..0x14].copy_from_slice(&0xb7u16.to_le_bytes());
     out[0x18..0x20].copy_from_slice(&0x2000u64.to_le_bytes()); // entry inside the segment
     out[0x20..0x28].copy_from_slice(&(phoff as u64).to_le_bytes());
@@ -180,4 +181,28 @@ fn bindings_are_classified() {
     let bytes = elf_with_imports(&[("malloc", false), ("__gmon_start__", true)]);
     let elf = Elf::parse(&bytes).expect("parse");
     assert!(miniloader::preflight::bindings_are_known(&elf));
+}
+#[test]
+fn a_position_dependent_image_needs_its_link_address() {
+    // ET_EXEC images are not position independent: mapping them anywhere else leaves
+    // every absolute pointer pointing at the link-time address.
+    let mut bytes = elf_with_imports(&[]);
+    bytes[0x10..0x12].copy_from_slice(&2u16.to_le_bytes()); // ET_EXEC
+    let elf = Elf::parse(&bytes).expect("parse");
+    assert_eq!(elf.elf_type, miniloader::elf::ElfType::Exec);
+    let verdict = preflight(&elf, &SymbolTable::new(), PAGE);
+    assert!(!verdict.is_loadable());
+    assert!(verdict
+        .blockers
+        .iter()
+        .any(|blocker| matches!(blocker, Blocker::NeedsFixedMapping { .. })));
+    assert!(verdict.reason().contains("position dependent"));
+}
+
+#[test]
+fn a_position_independent_image_does_not_need_one() {
+    let bytes = elf_with_imports(&[]);
+    let elf = Elf::parse(&bytes).expect("parse");
+    assert_eq!(elf.elf_type, miniloader::elf::ElfType::Dyn);
+    assert!(preflight(&elf, &SymbolTable::new(), PAGE).is_loadable());
 }

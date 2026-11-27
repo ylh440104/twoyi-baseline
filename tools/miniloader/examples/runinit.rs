@@ -51,11 +51,24 @@ fn main() {
             println!("imports: {} unresolved of {}", unresolved.len(), imports.len());
         }
     }
-    match miniloader::run::run_diagnosed(&bytes, 4096, &bridge, &argv_refs, &["PATH=/system/bin"]) {
-        Ok((outcome, Some(fault))) => {
+    match miniloader::run::run_traced(&bytes, 4096, &bridge, &argv_refs, &["PATH=/system/bin"]) {
+        Ok((outcome, Some(trap))) => {
+            let fault = miniloader::run::Fault {
+                signal: trap.signal,
+                address: trap.address,
+                pc: trap.pc,
+            };
             println!(
-                "outcome: {outcome:?} fault: signal={} address=0x{:x} pc=0x{:x}",
-                fault.signal, fault.address, fault.pc
+                "outcome: {outcome:?} fault: signal={} address=0x{:x} pc=0x{:x} sp=0x{:x}",
+                trap.signal, trap.address, trap.pc, trap.sp
+            );
+            println!(
+                "  x0=0x{:x} x1=0x{:x} x2=0x{:x} x8=0x{:x} x30=0x{:x}",
+                trap.register(0).unwrap_or(0),
+                trap.register(1).unwrap_or(0),
+                trap.register(2).unwrap_or(0),
+                trap.register(8).unwrap_or(0),
+                trap.register(30).unwrap_or(0)
             );
             // Say which instruction that PC corresponds to, when the image can tell us.
             if let Ok(parsed) = miniloader::elf::Elf::parse(&bytes) {

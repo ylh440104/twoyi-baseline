@@ -69,6 +69,26 @@ pub struct TlsImage {
     pub align: u64,
 }
 
+/// The two ELF object types the loader distinguishes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ElfType {
+    /// Position independent: any base works, because every pointer is relocated.
+    Dyn,
+    /// Fixed addresses: the image must be mapped exactly where it was linked.
+    Exec,
+    Other(u16),
+}
+
+impl ElfType {
+    fn from_raw(value: u16) -> ElfType {
+        match value {
+            2 => ElfType::Exec,
+            3 => ElfType::Dyn,
+            other => ElfType::Other(other),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Elf<'a> {
     pub entry: u64,
@@ -81,6 +101,82 @@ pub struct Elf<'a> {
     pub phdr_count: u16,
     /// `PT_TLS`, when the image uses thread-local storage.
     pub tls: Option<TlsImage>,
+    pub elf_type: ElfType,
+    /// Relocation table kinds the dynamic section declares.
+    ///
+    /// Android packs relocations (`DT_ANDROID_REL`), and newer links use `DT_RELR`;
+    /// neither is a plain `DT_RELA` table, so knowing which one is present decides
+    /// whether the loader can relocate the image at all.
+    pub relocation_tables: RelocTables,
+}
+
+/// Which relocation tables the dynamic section names.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RelocTables {
+    /// Plain `DT_RELA`/`DT_RELASZ`.
+    pub rela: bool,
+    /// `DT_RELR`/`DT_RELRSZ` (relative-only, compressed).
+    pub relr: bool,
+    /// `DT_ANDROID_REL`/`DT_ANDROID_RELSZ` (Android packed format).
+    pub android_packed: bool,
+}
+
+impl RelocTables {
+    /// A plain table the loader can walk, without any packed format.
+    pub fn has_readable_table(&self) -> bool {
+        self.rela && !self.android_packed
+    }
+}
+
+const DT_RELA: u64 = 7;
+const DT_RELASZ: u64 = 8;
+const DT_RELR: u64 = 36;
+const DT_RELRSZ: u64 = 35;
+const DT_ANDROID_REL: u64 = 0x6000_0001;
+const DT_ANDROID_RELSZ: u64 = 0x6000_0002;
+
+fn read_relocation_tables(data: &[u8]) -> RelocTables {
+    let mut tables = RelocTables::default();
+    let phoff = read_u64(data, 0x20).unwrap_or(0) as usize;
+    let phentsize = read_u16(data, 0x36).unwrap_or(0) as usize;
+    let phnum = read_u16(data, 0x38).unwrap_or(0) as usize;
+    if phentsize != 56 || phoff + phnum * phentsize > data.len() {
+        return tables;
+    }
+    for index in 0..phnum {
+        let base = phoff + index * phentsize;
+        if read_u32(data, base) != Some(2) {
+            continue;
+        }
+        let offset = read_u64(data, base + 0x08).unwrap_or(0) as usize;
+        let size = read_u64(data, base + 0x20).unwrap_or(0) as usize;
+        if offset + size > data.len() {
+            return tables;
+        }
+        let mut rela_size = 0u64;
+        let mut relr_size = 0u64;
+        let mut android_size = 0u64;
+        for entry in 0..size / 16 {
+            let at = offset + entry * 16;
+            let Some(tag) = read_u64(data, at) else { break };
+            let value = read_u64(data, at + 8).unwrap_or(0);
+            match tag {
+                0 => break,
+                DT_RELA => tables.rela = true,
+                DT_RELASZ => rela_size = value,
+                DT_RELR => tables.relr = true,
+                DT_RELRSZ => relr_size = value,
+                DT_ANDROID_REL => tables.android_packed = true,
+                DT_ANDROID_RELSZ => android_size = value,
+                _ => {}
+            }
+        }
+        tables.rela = tables.rela && rela_size > 0;
+        tables.relr = tables.relr && relr_size > 0;
+        tables.android_packed = tables.android_packed && android_size > 0;
+        break;
+    }
+    tables
 }
 
 fn read_u16(data: &[u8], offset: usize) -> Option<u16> {
@@ -201,11 +297,14 @@ impl<'a> Elf<'a> {
                 break;
             }
         }
+        let relocation_tables = read_relocation_tables(data);
         Ok(Elf {
             entry,
             segments,
             data,
             tls,
+            elf_type: ElfType::from_raw(read_u16(data, 0x10).unwrap_or(0)),
+            relocation_tables,
             phdr_vaddr,
             phdr_entry_size: phentsize,
             phdr_count: phnum_raw,

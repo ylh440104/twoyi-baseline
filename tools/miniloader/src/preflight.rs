@@ -46,6 +46,11 @@ pub enum Blocker {
     /// The image names shared libraries the loader does not load yet. Resolving its
     /// imports against this process alone would report false "missing symbol" errors.
     NeedsLibraries { names: Vec<String> },
+    /// The image must be mapped at the addresses it was linked at, which this loader
+    /// cannot always do: `ET_EXEC` images are not position independent.
+    NeedsFixedMapping { low: u64 },
+    /// The image uses a relocation format the loader cannot walk yet.
+    UnreadableRelocations { android_packed: bool, relr: bool },
 }
 
 impl std::fmt::Display for Blocker {
@@ -66,6 +71,24 @@ impl std::fmt::Display for Blocker {
                 "the image depends on {} shared library(ies) the loader does not load yet: {}",
                 names.len(),
                 names.join(" ")
+            ),
+            Blocker::NeedsFixedMapping { low } => write!(
+                formatter,
+                "the image is position dependent and must be mapped at its link address (lowest 0x{low:x})"
+            ),
+            Blocker::UnreadableRelocations {
+                android_packed,
+                relr,
+            } => write!(
+                formatter,
+                "the image uses {} relocations, which this loader cannot read yet",
+                if *android_packed {
+                    "Android packed (DT_ANDROID_REL)"
+                } else if *relr {
+                    "DT_RELR"
+                } else {
+                    "an unknown"
+                }
             ),
         }
     }
@@ -124,6 +147,26 @@ pub fn preflight(elf: &Elf<'_>, bridge: &SymbolTable, page_size: u64) -> Preflig
         blockers.push(Blocker::NoSegments);
     } else if !elf.entry_is_executable() {
         blockers.push(Blocker::EntryNotExecutable { entry: elf.entry });
+    }
+
+    // Two conditions the loader cannot paper over: a position-dependent image needs its
+    // link address, and packed relocations are not a plain table.
+    if elf.elf_type == crate::elf::ElfType::Exec {
+        let low = elf
+            .segments
+            .iter()
+            .map(|segment| segment.vaddr)
+            .min()
+            .unwrap_or(0);
+        blockers.push(Blocker::NeedsFixedMapping { low });
+    }
+    if !elf.relocation_tables.has_readable_table()
+        && (elf.relocation_tables.android_packed || elf.relocation_tables.relr)
+    {
+        blockers.push(Blocker::UnreadableRelocations {
+            android_packed: elf.relocation_tables.android_packed,
+            relr: elf.relocation_tables.relr,
+        });
     }
 
     let relative_relocations = match reloc::relative_relocations(elf) {
