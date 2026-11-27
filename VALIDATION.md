@@ -139,6 +139,16 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段三轮（续）：Phone 页可以真正打开来宾（构建通过）
+
+- `TwinRuntime.startPhone()`：`GuestInstanceGate.requireStartable` 先挡（`UNKNOWN_INSTANCE`/`NO_ROM` 直接返回原因）
+  → `registry.activate(id)` + `save()` → 启动 `Render2Activity`。
+  激活必须在启动之前：来宾进程是按**活动实例**解析槽位的。
+- Phone 页新增「全屏使用手机」按钮：仅当 `phoneReady && !busy` 可点；失败把原因显示在页面上。
+- CI：45918461523 构建通过、45918461505 host 回归通过（路径守卫 PASS）。
+- 边界：这条链路只是**把已有启动路径接上界面**，没有改启动本身；真机上是否真能进画面仍未验证
+  （需要设备；见 `docs/STAGE1_STATUS.md` 的空缺项）。
+
 ## 阶段三轮：界面接到真实实例状态（构建通过）
 
 - 新增 `ui/twin/TwinRuntime.kt`：界面的**唯一**状态来源，不再靠布尔占位。
