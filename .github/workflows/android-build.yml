@@ -8,6 +8,10 @@ on:
         description: 'Run ROM installation, storage and window tests on a dedicated ARM64 device runner'
         type: boolean
         default: false
+      publish_release:
+        description: 'Publish this build as a GitHub release so a device can install it'
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -167,6 +171,46 @@ jobs:
             source/legacy-apk.sha256
             source/app/build/reports/legacy-hal-files.txt
             source/app/build/reports/legacy-rom/
+
+  publish:
+    # Publishing happens inside CI on purpose: pulling a 200 MB APK over a slow link
+    # just to hand it to a device is fragile, and the runner already has it.
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release && github.ref == 'refs/heads/main'
+    needs: assemble
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: opensource-baseline-build
+          path: built
+      - name: Show what will be published
+        run: |
+          set -euo pipefail
+          find built -name '*.apk' -printf '%p %s bytes\n'
+          cat built/app/build/reports/apk.sha256 || true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="build-${GITHUB_RUN_ID}"
+          app=$(find built -path '*apk/debug/*.apk' ! -name '*androidTest*' | head -1)
+          test -n "$app"
+          name=$(basename "$app")
+          size=$(stat -c %s "$app")
+          sha=$(sha256sum "$app" | cut -d' ' -f1)
+          body=$(printf 'Debug APK built by CI.\n\nRun: %s/%s/actions/runs/%s\nCommit: %s\n\nSHA-256: %s\nSize: %s bytes\n\nInstall with:\n    adb install -r %s\n\nThis build is for device verification; the guest runtime is not wired yet.' \
+            "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$GITHUB_SHA" "$sha" "$size" "$name")
+          gh release create "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Baseline build $GITHUB_RUN_ID" \
+            --notes "$body" \
+            --prerelease \
+            "$app#$name"
+          echo "published $tag with $name ($sha)"
 
   window-device:
     if: github.event_name == 'workflow_dispatch' && inputs.device_smoke && github.ref == 'refs/heads/main'
