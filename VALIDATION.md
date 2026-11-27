@@ -139,6 +139,20 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段三十六：`DT_NEEDED` 依赖清单（74 项，本机 bionic 实测）
+
+- 新增 `symbols::needed_libraries()`：解析 `PT_DYNAMIC` 的 `DT_NEEDED`/`DT_STRTAB`/`DT_STRSZ`，
+  按链接期地址在段表里定位字符串表，返回依赖清单；静态镜像返回空。
+- `preflight` 增 `needed` 与 `NeedsLibraries` 阻塞项：**不再把「依赖库未加载」误报成「符号缺失」**；
+  `--check` 多打印 `check: needed=…` 或 `(static)`。
+- 本机（Android bionic aarch64）实测：
+  - `/system/bin/toybox` → `libcrypto.so libz.so liblog.so libprocessgroup.so libselinux.so libc.so libm.so libdl.so`
+  - 真实来宾 `rootfs/init` → `(static)`
+  - `/system/bin/linker64` → `(static)`
+- 新增 3 项测试（手工构造 `PT_DYNAMIC` fixture）：读依赖、静态镜像为空、动态镜像被 `NeedsLibraries` 阻塞。
+- `cargo test` 在 bionic 上 **74 项全过**。
+- 仍未实现：**真正加载这些库并合并符号表**（目前只如实报告会阻塞）。
+
 ## 阶段三十五：在真机（Termux = bionic aarch64）上验证，并跑通真实来宾 init
 
 - 用户指出 Termux 本身就是 Android + bionic + aarch64，于是本机装了 Rust 1.100，

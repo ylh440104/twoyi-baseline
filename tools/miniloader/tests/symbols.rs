@@ -269,3 +269,105 @@ fn a_weak_import_may_stay_unresolved() {
     assert_eq!(patched, 1);
     assert_eq!(writes, vec![(0x2000, 0)], "a weak miss resolves to zero");
 }
+
+/// ELF with a `PT_DYNAMIC` segment naming `needed` as its `DT_NEEDED` entries.
+fn elf_with_needed(needed: &[&str]) -> Vec<u8> {
+    let phoff = 64usize;
+    let phentsize = 56usize;
+    let phnum = 2usize; // PT_LOAD (headers + data) and PT_DYNAMIC
+    let dynstr_offset = phoff + phentsize * phnum;
+
+    let mut table = vec![0u8];
+    let mut offsets = Vec::new();
+    for name in needed {
+        offsets.push(table.len() as u64);
+        table.extend_from_slice(name.as_bytes());
+        table.push(0);
+    }
+    let dynstr_size = table.len();
+    let dynamic_offset = dynstr_offset + dynstr_size;
+    // tag,value pairs plus DT_NULL
+    let entries = needed.len() + 3;
+    let dynamic_size = entries * 16;
+    let total = dynamic_offset + dynamic_size;
+
+    let mut out = vec![0u8; total];
+    out[0..4].copy_from_slice(b"\x7fELF");
+    out[4] = 2;
+    out[5] = 1;
+    out[6] = 1;
+    out[0x12..0x14].copy_from_slice(&0xb7u16.to_le_bytes());
+    out[0x18..0x20].copy_from_slice(&0x2000u64.to_le_bytes());
+    out[0x20..0x28].copy_from_slice(&(phoff as u64).to_le_bytes());
+    out[0x36..0x38].copy_from_slice(&0x38u16.to_le_bytes());
+    out[0x38..0x3a].copy_from_slice(&(phnum as u16).to_le_bytes());
+
+    // PT_LOAD: file offset 0 -> vaddr 0x2000, covering the whole file, executable so
+    // the entry check passes; this test is about the library list.
+    out[phoff..phoff + 4].copy_from_slice(&1u32.to_le_bytes());
+    out[phoff + 4..phoff + 8].copy_from_slice(&5u32.to_le_bytes());
+    out[phoff + 8..phoff + 16].copy_from_slice(&0u64.to_le_bytes());
+    out[phoff + 16..phoff + 24].copy_from_slice(&0x2000u64.to_le_bytes());
+    out[phoff + 32..phoff + 40].copy_from_slice(&(total as u64).to_le_bytes());
+    out[phoff + 40..phoff + 48].copy_from_slice(&(total as u64).to_le_bytes());
+    out[phoff + 48..phoff + 56].copy_from_slice(&PAGE.to_le_bytes());
+
+    // PT_DYNAMIC
+    let dyn_ph = phoff + phentsize;
+    out[dyn_ph..dyn_ph + 4].copy_from_slice(&2u32.to_le_bytes());
+    out[dyn_ph + 8..dyn_ph + 16].copy_from_slice(&(dynamic_offset as u64).to_le_bytes());
+    out[dyn_ph + 16..dyn_ph + 24].copy_from_slice(&(0x2000u64 + dynamic_offset as u64).to_le_bytes());
+    out[dyn_ph + 32..dyn_ph + 40].copy_from_slice(&(dynamic_size as u64).to_le_bytes());
+    out[dyn_ph + 40..dyn_ph + 48].copy_from_slice(&(dynamic_size as u64).to_le_bytes());
+
+    out[dynstr_offset..dynstr_offset + dynstr_size].copy_from_slice(&table);
+
+    let strtab_vaddr = 0x2000 + dynstr_offset as u64;
+    let mut at = dynamic_offset;
+    for offset in &offsets {
+        out[at..at + 8].copy_from_slice(&1u64.to_le_bytes()); // DT_NEEDED
+        out[at + 8..at + 16].copy_from_slice(&offset.to_le_bytes());
+        at += 16;
+    }
+    out[at..at + 8].copy_from_slice(&5u64.to_le_bytes()); // DT_STRTAB
+    out[at + 8..at + 16].copy_from_slice(&strtab_vaddr.to_le_bytes());
+    at += 16;
+    out[at..at + 8].copy_from_slice(&10u64.to_le_bytes()); // DT_STRSZ
+    out[at + 8..at + 16].copy_from_slice(&(dynstr_size as u64).to_le_bytes());
+    at += 16;
+    out[at..at + 8].copy_from_slice(&0u64.to_le_bytes()); // DT_NULL
+    out
+}
+
+#[test]
+fn reads_the_needed_libraries() {
+    use miniloader::symbols::needed_libraries;
+    let bytes = elf_with_needed(&["libz.so", "libselinux.so", "liblog.so"]);
+    let elf = Elf::parse(&bytes).expect("parse");
+    let names = needed_libraries(&elf).expect("needed");
+    assert_eq!(names, vec!["libz.so", "libselinux.so", "liblog.so"]);
+}
+
+#[test]
+fn a_static_image_needs_nothing() {
+    use miniloader::symbols::needed_libraries;
+    let bytes = build_elf(&[]);
+    let elf = Elf::parse(&bytes).expect("parse");
+    assert!(needed_libraries(&elf).expect("needed").is_empty());
+}
+
+#[test]
+fn a_dynamic_image_is_blocked_for_its_libraries() {
+    use miniloader::preflight::{preflight, Blocker};
+    use miniloader::SymbolTable;
+    let bytes = elf_with_needed(&["libz.so", "libm.so"]);
+    let elf = Elf::parse(&bytes).expect("parse");
+    let verdict = preflight(&elf, &SymbolTable::new(), PAGE);
+    assert_eq!(verdict.needed, vec!["libz.so", "libm.so"]);
+    assert!(matches!(
+        verdict.blockers.first(),
+        Some(Blocker::NeedsLibraries { .. })
+    ));
+    assert!(verdict.reason().contains("libz.so"));
+    assert!(!verdict.is_loadable());
+}

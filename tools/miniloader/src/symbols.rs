@@ -256,3 +256,94 @@ fn u64_at(data: &[u8], offset: usize) -> Option<u64> {
     bytes.copy_from_slice(slice);
     Some(u64::from_le_bytes(bytes))
 }
+
+/// `DT_NEEDED` / `DT_STRTAB` / `DT_STRSZ` from the dynamic section.
+const DT_NEEDED: u64 = 1;
+const DT_STRTAB: u64 = 5;
+const DT_STRSZ: u64 = 10;
+const PT_DYNAMIC: u32 = 2;
+
+/// The shared libraries this image asks for, in declaration order.
+///
+/// A guest `init` that is statically linked needs nothing; a dynamic one names its
+/// libraries here. The loader has to know the list before it can resolve any symbol:
+/// resolving against the current process alone gives a misleading "missing symbol"
+/// answer for everything that lives in a separate library.
+pub fn needed_libraries(elf: &Elf<'_>) -> Result<Vec<String>, SymError> {
+    let data = elf.data;
+    // Find PT_DYNAMIC; its file range holds {tag, value} pairs terminated by DT_NULL.
+    let mut dynamic = None;
+    {
+        let phoff = u64_at(data, 0x20).ok_or(SymError::BadSectionTable)? as usize;
+        let phentsize = u16_at(data, 0x36).ok_or(SymError::BadSectionTable)? as usize;
+        let phnum = u16_at(data, 0x38).ok_or(SymError::BadSectionTable)? as usize;
+        if phentsize != 56 || phoff + phnum * phentsize > data.len() {
+            return Err(SymError::BadSectionTable);
+        }
+        for index in 0..phnum {
+            let base = phoff + index * phentsize;
+            if u32_at(data, base).ok_or(SymError::BadSectionTable)? != PT_DYNAMIC {
+                continue;
+            }
+            let offset = u64_at(data, base + 0x08).ok_or(SymError::BadSectionTable)? as usize;
+            let filesz = u64_at(data, base + 0x20).ok_or(SymError::BadSectionTable)? as usize;
+            if offset + filesz > data.len() || filesz % 16 != 0 {
+                return Err(SymError::BadSectionTable);
+            }
+            dynamic = Some((offset, filesz));
+            break;
+        }
+    }
+    let (offset, size) = match dynamic {
+        Some(range) => range,
+        // No dynamic section at all: statically linked, nothing to load.
+        None => return Ok(Vec::new()),
+    };
+
+    let mut strtab_addr = 0u64;
+    let mut strsz = 0u64;
+    let mut offsets = Vec::new();
+    let entries = size / 16;
+    for index in 0..entries {
+        let at = offset + index * 16;
+        let tag = u64_at(data, at).ok_or(SymError::BadSectionTable)?;
+        let value = u64_at(data, at + 8).ok_or(SymError::BadSectionTable)?;
+        match tag {
+            0 => break, // DT_NULL
+            DT_NEEDED => offsets.push(value),
+            DT_STRTAB => strtab_addr = value,
+            DT_STRSZ => strsz = value,
+            _ => {}
+        }
+    }
+    if offsets.is_empty() {
+        return Ok(Vec::new());
+    }
+    if strtab_addr == 0 || strsz == 0 {
+        return Err(SymError::MissingStringTable);
+    }
+
+    // DT_STRTAB is a link-time address; find the segment that maps it to a file offset.
+    let strtab = elf
+        .segments
+        .iter()
+        .find_map(|segment| {
+            let end = segment.vaddr.checked_add(segment.filesz)?;
+            if strtab_addr >= segment.vaddr && strtab_addr < end {
+                Some((segment.offset + (strtab_addr - segment.vaddr)) as usize)
+            } else {
+                None
+            }
+        })
+        .ok_or(SymError::MissingStringTable)?;
+
+    let mut names = Vec::new();
+    for index in offsets {
+        let name = string_at(data, strtab, strsz as usize, index as usize)
+            .ok_or(SymError::BadDynsym { index: 0 })?;
+        if !name.is_empty() {
+            names.push(name);
+        }
+    }
+    Ok(names)
+}

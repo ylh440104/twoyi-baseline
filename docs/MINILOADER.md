@@ -90,8 +90,22 @@ Termux 本身就是 Android + bionic + aarch64，装了 Rust 1.100 后可在**�
 
 来宾 `init` 的 ELF 头是 `7f 45 4c 46 02 01 01 … 02 00 b7 00`，即 ELF64 小端、`e_machine=0xB7`(aarch64)。
 
-### 由此新增的一个已知缺口
+### `DT_NEEDED`（本轮补上）
 
-`toybox` 那 19 个「缺失」暴露了一个真问题：**我们没有实现 `DT_NEEDED` 依赖库加载**。
-真实动态链接器会先加载 `libz.so`/`libselinux.so`/`liblog.so` 再解析符号；我们目前只在**当前进程**
-里 `dlsym`。对来宾 `init` 没影响（它是静态的），但任何动态链接的来宾二进制都会因此被判 blocked。
+`toybox` 那 19 个「缺失」暴露的是同一个问题的两种表现：真实动态链接器会先按 `DT_NEEDED`
+加载 `libz/libselinux/liblog` 再解析符号，而我们只在当前进程 `dlsym`。现在：
+
+- `symbols::needed_libraries()` 解析 `PT_DYNAMIC`，读 `DT_NEEDED`(1) / `DT_STRTAB`(5) / `DT_STRSZ`(10)，
+  按链接期地址在段表里找到字符串表，返回依赖清单；
+- `preflight` 增加 `needed` 字段与 `NeedsLibraries` 阻塞项，**不再把「依赖库没加载」误报成
+  「符号缺失」**；`--check` 多打印一行 `check: needed=…` 或 `(static)`。
+
+真机实测：
+
+| 目标 | `needed` |
+|---|---|
+| `/system/bin/toybox` | `libcrypto.so libz.so liblog.so libprocessgroup.so libselinux.so libc.so libm.so libdl.so` |
+| 真实来宾 `rootfs/init` | `(static)` |
+| `/system/bin/linker64` | `(static)` |
+
+仍未实现：**真正加载这些库并合并它们的符号表**（现在只是如实报告会阻塞）。

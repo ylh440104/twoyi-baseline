@@ -43,6 +43,9 @@ pub enum Blocker {
     BadSymbols(String),
     /// The entry point does not land in an executable segment.
     EntryNotExecutable { entry: u64 },
+    /// The image names shared libraries the loader does not load yet. Resolving its
+    /// imports against this process alone would report false "missing symbol" errors.
+    NeedsLibraries { names: Vec<String> },
 }
 
 impl std::fmt::Display for Blocker {
@@ -58,6 +61,12 @@ impl std::fmt::Display for Blocker {
             Blocker::EntryNotExecutable { entry } => {
                 write!(formatter, "entry 0x{entry:x} is not inside an executable segment")
             }
+            Blocker::NeedsLibraries { names } => write!(
+                formatter,
+                "the image depends on {} shared library(ies) the loader does not load yet: {}",
+                names.len(),
+                names.join(" ")
+            ),
         }
     }
 }
@@ -69,6 +78,8 @@ pub struct Preflight {
     pub reserved_bytes: u64,
     pub relative_relocations: usize,
     pub imports: Vec<ImportStatus>,
+    /// `DT_NEEDED` names, in declaration order; empty for a static image.
+    pub needed: Vec<String>,
     pub blockers: Vec<Blocker>,
 }
 
@@ -123,6 +134,19 @@ pub fn preflight(elf: &Elf<'_>, bridge: &SymbolTable, page_size: u64) -> Preflig
         }
     };
 
+    let needed = match symbols::needed_libraries(elf) {
+        Ok(names) => names,
+        Err(error) => {
+            blockers.push(Blocker::BadSymbols(format!("{error:?}")));
+            Vec::new()
+        }
+    };
+    if !needed.is_empty() {
+        blockers.push(Blocker::NeedsLibraries {
+            names: needed.clone(),
+        });
+    }
+
     let mut imports = Vec::new();
     match symbols::jump_slots(elf) {
         Ok(slots) => {
@@ -154,6 +178,7 @@ pub fn preflight(elf: &Elf<'_>, bridge: &SymbolTable, page_size: u64) -> Preflig
         reserved_bytes,
         relative_relocations,
         imports,
+        needed,
         blockers,
     }
 }

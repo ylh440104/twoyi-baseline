@@ -167,6 +167,14 @@ fn main() {
             verdict.relative_relocations,
             verdict.imports.len()
         );
+        println!(
+            "check: needed={}",
+            if verdict.needed.is_empty() {
+                "(static)".to_string()
+            } else {
+                verdict.needed.join(" ")
+            }
+        );
         for blocker in &verdict.blockers {
             println!("check blocker: {blocker}");
         }
