@@ -19,6 +19,10 @@ import java.io.File
  * registry says so, and it is usable only if the slot holds a bootable ROM.
  */
 object TwinRuntime {
+    const val FLAG_SEE_SCREEN = "see_screen"
+    const val FLAG_SENSITIVE_GUARD = "sensitive_guard"
+    const val FLAG_CONFIRM_RISKY = "confirm_risky"
+    private const val FLAG_MEMORY = "memories"
     private const val DEFAULT_INSTANCE = "twin"
     private const val PREFS = "twin-shell"
     private const val KEY_PROVIDER_CONNECTED = "provider_connected"
@@ -151,6 +155,37 @@ object TwinRuntime {
         prefs.edit().putString("instance_id", DEFAULT_INSTANCE).apply()
         return DEFAULT_INSTANCE
     }
+
+    /** Toggles the settings screen exposes; all default to the safest choice. */
+    fun isFlag(context: Context, key: String): Boolean =
+        prefs(context).getBoolean(key, false)
+
+    fun setFlag(context: Context, key: String, value: Boolean) {
+        prefs(context).edit().putBoolean(key, value).apply()
+    }
+
+    fun memories(context: Context): List<String> =
+        prefs(context).getStringSet(FLAG_MEMORY, emptySet())!!.sorted()
+
+    fun remember(context: Context, note: String) {
+        if (note.trim().isEmpty()) return
+        val current = prefs(context).getStringSet(FLAG_MEMORY, emptySet())!!.toMutableSet()
+        current.add(note.trim())
+        prefs(context).edit().putStringSet(FLAG_MEMORY, current).apply()
+    }
+
+    fun forget(context: Context, note: String) {
+        val current = prefs(context).getStringSet(FLAG_MEMORY, emptySet())!!.toMutableSet()
+        current.remove(note)
+        prefs(context).edit().putStringSet(FLAG_MEMORY, current).apply()
+    }
+
+    fun forgetAll(context: Context) {
+        prefs(context).edit().remove(FLAG_MEMORY).apply()
+    }
+
+    private fun prefs(context: Context) =
+        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     /** Files the settings screen lists, for the "Files" entry. */
     fun dataRoot(context: Context): File =

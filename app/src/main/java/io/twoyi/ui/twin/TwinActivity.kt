@@ -70,7 +70,7 @@ private enum class Tab(val label: Int) {
     Phone(R.string.twin_tab_phone),
 }
 
-private enum class Screen { Boot, Main, Provider }
+private enum class Screen { Boot, Main, Provider, Settings, Memory }
 
 private class TwinState(
     val phone: TwinRuntime.PhoneState,
@@ -98,6 +98,8 @@ private fun TwinApp() {
         Screen.Boot -> BootScreen(state)
         Screen.Main -> MainScreen(state)
         Screen.Provider -> ProviderScreen(state)
+        Screen.Settings -> SettingsScreen(state)
+        Screen.Memory -> MemoryScreen(state)
     }
 }
 
@@ -190,7 +192,19 @@ private fun MainScreen(state: TwinState) {
                 .fillMaxWidth()
                 .padding(start = 16.dp, top = 20.dp, end = 16.dp, bottom = 8.dp)
         ) {
-            Text(stringResource(R.string.twin_agent_name), style = MaterialTheme.typography.titleLarge)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.twin_agent_name),
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = { state.screen = Screen.Settings }) {
+                    Text(stringResource(R.string.twin_settings_title))
+                }
+            }
         }
         Divider()
         Box(modifier = Modifier.weight(1f)) {
@@ -406,6 +420,172 @@ private fun ProviderScreen(state: TwinState) {
                     state.screen = Screen.Main
                 }
             ) { Text(stringResource(R.string.twin_provider_connect)) }
+        }
+    }
+}
+
+@Composable
+private fun SettingsScreen(state: TwinState) {
+    val context = LocalContext.current
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        TextButton(onClick = { state.screen = Screen.Main }) {
+            Text(stringResource(R.string.twin_back))
+        }
+        SectionTitle(stringResource(R.string.twin_settings_title))
+        GroupHeader(R.string.twin_settings_group_twin)
+        InfoRow(
+            R.string.twin_settings_model,
+            if (state.model) {
+                TwinRuntime.lastProviderLabel(context) ?: stringResource(R.string.twin_provider_active)
+            } else {
+                stringResource(R.string.twin_settings_model_disconnected)
+            }
+        )
+        ToggleRow(
+            R.string.twin_settings_see_screen,
+            R.string.twin_settings_see_screen_desc,
+            TwinRuntime.FLAG_SEE_SCREEN
+        )
+        ToggleRow(
+            R.string.twin_settings_sensitive_guard,
+            R.string.twin_settings_sensitive_guard_desc,
+            TwinRuntime.FLAG_SENSITIVE_GUARD
+        )
+        ToggleRow(
+            R.string.twin_settings_confirm_risky,
+            R.string.twin_settings_confirm_risky_desc,
+            TwinRuntime.FLAG_CONFIRM_RISKY
+        )
+        TextButton(onClick = { state.screen = Screen.Memory }) {
+            Text(stringResource(R.string.twin_settings_memory))
+        }
+        GroupHeader(R.string.twin_settings_group_phone)
+        InfoRow(R.string.twin_settings_phone_mode, stringResource(R.string.twin_settings_phone_twin))
+        if (!state.phoneCreated) {
+            HintRow(R.string.twin_settings_needs_phone)
+        } else if (!state.phoneReady) {
+            HintRow(R.string.twin_settings_needs_boot)
+        } else {
+            InfoRow(R.string.twin_settings_files, stringResource(R.string.twin_settings_files_desc))
+        }
+        GroupHeader(R.string.twin_settings_group_host)
+        HintRow(R.string.twin_settings_host_battery_desc)
+        GroupHeader(R.string.twin_settings_group_help)
+        HintRow(R.string.twin_settings_send_log_desc)
+    }
+}
+
+@Composable
+private fun MemoryScreen(state: TwinState) {
+    val context = LocalContext.current
+    var entries by remember { mutableStateOf(TwinRuntime.memories(context)) }
+    var confirming by remember { mutableStateOf(false) }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        TextButton(onClick = { state.screen = Screen.Settings }) {
+            Text(stringResource(R.string.twin_back))
+        }
+        SectionTitle(stringResource(R.string.twin_memory_title))
+        if (entries.isEmpty()) {
+            Text(
+                text = stringResource(R.string.twin_memory_empty),
+                style = MaterialTheme.typography.bodyMedium
+            )
+        } else {
+            entries.forEach { note ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(note, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    TextButton(onClick = {
+                        TwinRuntime.forget(context, note)
+                        entries = TwinRuntime.memories(context)
+                    }) { Text(stringResource(R.string.twin_memory_delete)) }
+                }
+            }
+            if (confirming) {
+                Text(
+                    text = stringResource(R.string.twin_memory_clear_body),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = {
+                        TwinRuntime.forgetAll(context)
+                        entries = TwinRuntime.memories(context)
+                        confirming = false
+                    }) { Text(stringResource(R.string.twin_memory_clear)) }
+                    OutlinedButton(onClick = { confirming = false }) {
+                        Text(stringResource(R.string.twin_memory_keep))
+                    }
+                }
+            } else {
+                TextButton(onClick = { confirming = true }) {
+                    Text(stringResource(R.string.twin_memory_clear))
+                }
+            }
+        }
+        Text(
+            text = stringResource(R.string.twin_memory_note),
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
+}
+
+@Composable
+private fun GroupHeader(title: Int) {
+    Text(
+        text = stringResource(title),
+        style = MaterialTheme.typography.labelLarge,
+        modifier = Modifier.padding(top = 8.dp)
+    )
+}
+
+@Composable
+private fun InfoRow(label: Int, value: String) {
+    Column {
+        Text(stringResource(label), style = MaterialTheme.typography.bodyMedium)
+        Text(value, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun HintRow(text: Int) {
+    Text(stringResource(text), style = MaterialTheme.typography.bodySmall)
+}
+
+@Composable
+private fun ToggleRow(title: Int, desc: Int, flag: String) {
+    val context = LocalContext.current
+    var checked by remember { mutableStateOf(TwinRuntime.isFlag(context, flag)) }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = stringResource(title),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                val stateLabel = if (checked) {
+                    stringResource(R.string.twin_provider_active)
+                } else {
+                    stringResource(R.string.twin_settings_pip_off)
+                }
+                TextButton(onClick = {
+                    checked = !checked
+                    TwinRuntime.setFlag(context, flag, checked)
+                }) { Text(stateLabel) }
+            }
+            Text(stringResource(desc), style = MaterialTheme.typography.bodySmall)
         }
     }
 }
