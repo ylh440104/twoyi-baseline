@@ -162,6 +162,12 @@ jobs:
           java -cp "$RUNNER_TEMP/service-slot-tests" io.twoyi.GuestServiceSlotTest
       - name: Guard guest paths against data-directory derivation
         run: python3 tools/check_slot_paths.py
+      - name: Check the device probe script
+        run: |
+          bash -n tools/device_probe.sh
+          bash tools/device_probe.sh --dry-run
+          # --help must not need adb either.
+          bash tools/device_probe.sh --help | head -3
       - name: Verify guest preflight record
         run: |
           mkdir -p "$RUNNER_TEMP/preflight-note"
