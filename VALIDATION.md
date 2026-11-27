@@ -139,6 +139,21 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段三轮：界面接到真实实例状态（构建通过）
+
+- 新增 `ui/twin/TwinRuntime.kt`：界面的**唯一**状态来源，不再靠布尔占位。
+  - `phoneState()`：读 `GuestInstanceRegistry` → `GuestInstanceGate.evaluate`，把
+    `UNKNOWN_INSTANCE / NO_ROM / STARTABLE` 映射成「未创建 / 已创建但无系统 / 可用」；
+  - `createPhone()`：`GuestInstanceManager.create` → `activate` → `GuestInstanceInstaller.installBundledRom`，
+    在后台线程执行，失败把 `message` 带回界面；
+  - 模型连接用 `SharedPreferences` 持久化（`provider_connected` 与 `provider_label`）。
+- 界面改动：两步入场的「创建」与 Phone 页的「创建手机」都走 `createPhone`，按钮在忙时禁用并显示
+  `twin_boot_preparing`；连接模型写入偏好后回到主界面；「已完成」状态来自磁盘而非内存。
+- CI：45917912498 构建通过（先前 45916703367 因 `BootScreen` 缺 `LocalContext` 失败，已修）；
+  host 回归 45917912505 通过（路径守卫仍 PASS）。
+- 明确边界：**还没有启动来宾**——创建只到「装好系统」这一步，`Twin` 页回复仍是占位串，
+  也没有渲染 Surface。下一步才是把启动链路接上。
+
 ## 阶段三首轮：Compose 界面成型（构建通过）
 
 - 把 `TwinActivity.kt` 从「一张占位卡片」扩成**四个界面**：
