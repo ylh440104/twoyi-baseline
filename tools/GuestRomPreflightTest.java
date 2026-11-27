@@ -59,7 +59,7 @@ public final class GuestRomPreflightTest {
     private static void verdictEntryNotExecutable(Path work) throws IOException {
         // The single PT_LOAD is not executable, so the entry cannot run.
         File elf = work.resolve("init-noexec").toFile();
-        Files.write(elf.toPath(), elf64(0xb7, 0x1000, 0x400000, 0x1000, 0x404, false, false));
+        Files.write(elf.toPath(), elf64(0xb7, 0x400100, 0x400000, 0x1000, 0x404, false, false));
         expect(GuestRomPreflight.check(elf, true)
                         == GuestRomPreflight.Verdict.ENTRY_NOT_EXECUTABLE,
                 "an entry outside an executable segment must be reported");
@@ -67,7 +67,7 @@ public final class GuestRomPreflightTest {
 
     private static void verdictDynamicallyLinked(Path work) throws IOException {
         File elf = work.resolve("init-dynamic").toFile();
-        Files.write(elf.toPath(), elf64(0xb7, 0x1000, 0x400000, 0x1000, 0x405, false, true));
+        Files.write(elf.toPath(), elf64(0xb7, 0x400100, 0x400000, 0x1000, 0x405, false, true));
         expect(GuestRomPreflight.check(elf, true)
                         == GuestRomPreflight.Verdict.DYNAMICALLY_LINKED,
                 "a PT_DYNAMIC image must be reported as dynamically linked");
@@ -75,7 +75,7 @@ public final class GuestRomPreflightTest {
 
     private static void verdictOk(Path work) throws IOException {
         File elf = work.resolve("init-ok").toFile();
-        Files.write(elf.toPath(), elf64(0xb7, 0x1000, 0x400000, 0x1000, 0x405, false, false));
+        Files.write(elf.toPath(), elf64(0xb7, 0x400100, 0x400000, 0x1000, 0x405, false, false));
         expect(GuestRomPreflight.check(elf, true) == GuestRomPreflight.Verdict.OK,
                 "a static aarch64 image with an executable entry is fine");
         // The class stays free of Android types so this test can run on the host.
