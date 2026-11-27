@@ -549,7 +549,7 @@ fn run_child(
     }
 
     // The image's own entry, biased by where it was actually mapped.
-    let entry = image.entry() as u64;
+    let entry = image.entry();
 
     // Hand control over. `blr` sets the return address to right after itself, so a
     // guest that returns lands on the trap instead of into random memory.

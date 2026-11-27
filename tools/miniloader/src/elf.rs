@@ -274,7 +274,7 @@ impl<'a> Elf<'a> {
         let phdr_offset = read_u64(data, 0x20).unwrap_or(0);
         let phdr_vaddr = segments.iter().find_map(|segment| {
             let start = segment.offset;
-            let end = segment.offset.checked_add(segment.filesz).unwrap_or(u64::MAX);
+            let end = segment.offset.saturating_add(segment.filesz);
             if phdr_offset >= start && phdr_offset < end {
                 Some(segment.vaddr + (phdr_offset - start))
             } else {
