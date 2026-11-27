@@ -1,0 +1,76 @@
+name: Find the dynamically registered JNI entry points
+
+# libtwoyi.so exports only JNI_OnLoad because every native method is registered at
+# runtime. This job recovers the registration table entries (name, signature,
+# function pointer) for the methods whose behaviour is still unknown, then
+# disassembles the functions it finds so their structure can be read offline.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/jni-table.yml'
+      - 'tools/ghidra/find_jni_table.py'
+
+permissions:
+  contents: read
+
+jobs:
+  table:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Install a cross binutils
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q
+          sudo apt-get install -y binutils-aarch64-linux-gnu
+      - name: Download and verify the APK
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/twoyi.apk" \
+            https://dl.twoyi.ai/twoyi_0.7.5-11131322.apk
+          echo "86ed3afaa447104f131d906c42ed8a07e207959c7869fda54bd245f62db14f4e  $RUNNER_TEMP/twoyi.apk" \
+            | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/libs"
+          unzip -o -j "$RUNNER_TEMP/twoyi.apk" 'lib/arm64-v8a/libtwoyi.so' -d "$RUNNER_TEMP/libs" >/dev/null
+          ls -l "$RUNNER_TEMP/libs"
+      - name: Find the registration entries
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/jni-entries.txt"
+          python3 tools/ghidra/find_jni_table.py "$RUNNER_TEMP/libs/libtwoyi.so" \
+            nativeResolve nativeHandle native-fence nativePrepare nativeAttachWindow \
+            nativeConfigureEndpoints nativeHandleTouch nativeSendKeycode \
+            > "$out" 2>&1 || true
+          cat "$out"
+      - name: Disassemble the recovered functions
+        run: |
+          set -euo pipefail
+          entries="$RUNNER_TEMP/jni-entries.txt"
+          out="$RUNNER_TEMP/jni-disasm.txt"
+          : > "$out"
+          for fn in $(grep -oE 'fn=0x[0-9a-f]+' "$entries" | sed 's/fn=//' | sort -u); do
+            decimal=$((fn))
+            start=$((decimal))
+            stop=$((decimal + 2048))
+            echo "## function at $fn" >> "$out"
+            aarch64-linux-gnu-objdump -d --no-show-raw-insn \
+              --start-address="$start" --stop-address="$stop" \
+              "$RUNNER_TEMP/libs/libtwoyi.so" >> "$out" 2>&1 || true
+            echo >> "$out"
+          done
+          wc -l "$out"
+          head -40 "$out"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jni-table
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/jni-entries.txt
+            ${{ runner.temp }}/jni-disasm.txt
