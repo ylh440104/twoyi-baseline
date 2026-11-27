@@ -48,7 +48,7 @@
 | `@twoyi_hal` 分流 | 首包 4 字节小端 `int32` 定模块，连接级回显 ACK | 实证（Java 层） | `HAL_PROTOCOL.md` §1 |
 | camera 帧 | 32 字节信封（`TWC2`/version/headerSize/seq）+ 24 字节头 `W,H,NV21,fpsMin,fpsMax,frameBytes`；wire 上无 stride/时间戳/fd | 实证（Java 层） | `HAL_PROTOCOL.md` §3 |
 | sensors | 列表 156 B/条；事件 28 B（type i32、ns i64、accuracy i32、3×f32） | 实证（Java 层） | `HAL_PROTOCOL.md` §2 |
-| camera opcode 号 | **未知**（jadx `Method dump skipped`） | 空缺 | 需 `--show-bad-code` 或 smali |
+| camera 请求 opcode | **2、3、4、5、6**（宿主分支覆盖），应答 opcode = 请求 \| `0x8000`，未知值走 fallthrough 仍回帧 | 实证（smali） | `g0.smali` 的 `g(...)` if 链，run 45914008675 |
 | `TwoyiResolverHal` 请求 | 360 字节定长，来宾无魔数无长度 | 实证（Java 层） | `HAL_PROTOCOL.md` §5 |
 | `TwoyiResolverHal` 应答 | 988 字节定长，`nativeResolve` 返回，长度严格相等 | 实证（Java 层） | 同上 |
 | 360/988 的字段布局 | **未知**，在 native；有 3 个候选模型未证伪 | 空缺 | 同上 |

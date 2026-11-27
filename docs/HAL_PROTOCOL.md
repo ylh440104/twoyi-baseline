@@ -5,7 +5,7 @@
 
 一句话结论：**`@twoyi_hal` 上所有模块共用一个 4 字节小端 `int32` 类型握手，之后每个模块各自定义裸字节流；除 camera 的自描述 32 字节头和控制服务的 9 字节头之外，各模块都没有长度前缀或校验和。**
 
-## 0. 证据来源
+## 1. 证据来源
 
 | 项 | 值 |
 |---|---|
@@ -14,7 +14,7 @@
 | 原生库符号面 | `native-symbols.txt`：`libtwoyi.so` 仅导出 `JNI_OnLoad`（native 方法走 `RegisterNatives` 动态注册） |
 | 旧 ROM 字符串证据 | `docs/HAL_BRIDGE.md`（0.5.4 配套 ROM 的 `stub-strings`） |
 
-## 1. 传输总览
+## 2. 传输总览
 
 ### 1.1 端点
 
@@ -82,7 +82,7 @@
 
 各模块负载是否为流式（无帧）取决于模块；详见 §3。
 
-## 2. 服务端实现（谁 bind、谁 accept、谁 dispatch）
+## 3. 服务端实现（谁 bind、谁 accept、谁 dispatch）
 
 - 启动：`e0.g()` → `t0.b(Context)`（`t0.java:61-72`，`AtomicBoolean` 保证只启动一次）→ `f5906h.execute(new d8.d(3))`。
 - bind：`d8.d` case 3（`d8/d.java:58-97`）`new LocalSocket(2)` → `bind(LocalSocketAddress("twoyi_hal", ABSTRACT))` → `new LocalServerSocket(fd)` → `f5909c = true`、`f5908b.countDown()`（等待就绪的锁存器，其它代码可据此判断 HAL 已就绪）→ `Log.i("t0","HAL socket ready: twoyi_hal")`。
@@ -90,7 +90,7 @@
 - 分发：`s0.run()` case 0（见 §1.2）。每个模块 handler 结束时**自己**关闭 socket（`IOUtils.closeSilently`），分发层不负责回收。
 - camera 额外起一个守护线程 `twoyi_camera_v2_peer_close`（`g0.e()`，`g0.java:149-153`）用 `Os.poll()` 监听挂断。
 
-## 3. 逐模块命令表
+## 4. 逐模块命令表
 
 下表的「命令」就是首包 `int32 type` 之后模块自己读到的字节。**没有**统一长度前缀；多数模块直接读定长 `int32`。
 
@@ -258,7 +258,7 @@ host → guest 的 GPS 帧（`k.d(int kind, long seq, long elapsedNanos, byte[] 
 | 14 | `b1.a(LocalSocket)`（`b1.java:56-77`） | 无请求帧：注册 `NetworkCallback` 与 `SIM_STATE_CHANGED`，向 socket 推送 |
 | 17 | `j0.a(LocalSocket)`（`j0.java:143-175`） | 首包 `int32` 版本必须 = **1**（回 `int32 1`）；之后帧头 **9 字节**：`int32 payloadLen`（≤1048576）、`int32 requestId`、`u8 kind`；kind `3` = stdout 片段、`4` = stderr 片段、`5` = 退出（payload 为 `int32 status`）、`6` = 错误文本；同一 socket 上的 host→guest 方向用相同 9 字节头（`a8/d2.T`，`a8/d2.java:815-822`） |
 
-## 4. 关键字节布局汇总
+## 5. 关键字节布局汇总
 
 ### 4.1 `@twoyi_hal` 连接级
 
@@ -312,7 +312,7 @@ guest → host : 360 字节，定长，无长度前缀
 host → guest : 988 字节，定长
 ```
 
-## 5. `TwoyiResolverHal`（type 2）
+## 6. `TwoyiResolverHal`（type 2）
 
 `TwoyiResolverHal.a(LocalSocket)`（`TwoyiResolverHal.java:12-31`），全流程：
 
@@ -344,7 +344,51 @@ host → guest : 988 字节，定长
 
 **如何证伪/证实（下一步）**：`libtwoyi.so` 只导出 `JNI_OnLoad`（`native-symbols.txt`），所以 `nativeResolve` 是通过 `RegisterNatives` 注册的；需要在云端 Ghidra 里从 `JNI_OnLoad` 找 `RegisterNatives` 表拿到 `nativeResolve` 地址，读它的读/写偏移；或在运行的来宾里抓一次真实的 360 字节请求。
 
-## 6. `KernelSuHal`（type 16）
+
+## 7. camera 的 opcode 已解（smali 实证）
+
+上一版把 camera opcode 列为空缺，理由是两个方法被 jadx 跳过。改用 **apktool 解 smali** 后
+（`.github/workflows/smali-focus.yml`，run 45914008675）在 `io/twoyi/hal/g0.smali` 的
+`g(Lio/twoyi/hal/f0;Lio/twoyi/hal/i;Ljava/io/OutputStream;)V` 里直接读到了分发链：
+
+```
+iget  v0, v3, Lio/twoyi/hal/i;->a:I     # v0 = 请求 opcode（来自来宾，不是常量）
+const/4 v10, 0x2
+if-eq v0, v10, :cond_29               # opcode 2
+const/4 v6, 0x3
+if-eq v0, v6,  :cond_7                # opcode 3
+const/4 v14, 0x4
+if-eq v0, v14, :cond_2                # opcode 4
+const/4 v13, 0x5
+if-eq v0, v13, :cond_1                # opcode 5
+const/4 v12, 0x6
+if-ne v0, v12, :cond_0                # opcode 6；否则落到 fallthrough
+```
+
+结论：
+
+| 项 | 值 | 证据 |
+|---|---|---|
+| 被服务的请求 opcode | **2、3、4、5、6**（各走不同 `:cond_*` 分支） | 上述 if 链 |
+| 未知 opcode 的处理 | **不回错误，走 fallthrough** 仍会写出应答 | 链尾无 "unknown opcode" 抛出（`Unknown camera v2 device opcode` 只在另一处引用） |
+| 应答 opcode | `请求 opcode \| 0x8000`（`const v2, 0x8000` + `or-int/2addr`） | 同一方法内三处 |
+| opcode 是否宿主常量 | **否**，`v0` 来自请求对象 `i.a` | `iget` |
+
+每个分支随后都调用同一组：
+`k.m(i, 0)`（清标志）→ `g0.h(f0)`（取帧）→ `this.b(f0)`（送帧）→
+`k.q(OutputStream, seq, ts, opcode, ...)` 或 `k.p(...)` 写回。区别在于 opcode 4 分支额外传了
+`v0`（原 opcode）给 `k.m`，其余传 `v15 = 0`。
+
+**因此 camera 的完整线格式现在是**：
+32 字节 `TWC2` 信封（魔数 843274068、version 2、headerSize 32、seq 递增、payload ≤ 4096、应答 opcode 置 bit15）
++ 24 字节帧头（`W, H, 0x3132564E("NV21"), fpsMin, fpsMax, W*H*3/2`）+ 紧密 NV21 像素，
+请求 opcode 取 2..6，宿主对未知值不报错直接回帧。
+
+**仍未解**：opcode 2..6 各自的语义（预览/拍照/参数查询？）；`k.m` 的 `0` 与 `v0` 两种传参差异含义。
+这些需要真机抓一次两侧字节，或看 `libtwoyi.so` 里对应实现。另外更正：`a8/d2` 与 camera 无关
+（`d2.smali` 是混淆过的 UI 类，含 `EditText`/`Parcel`/`AttributeSet`），上一版把它列为 camera 缺口是误判。
+
+## 8. `KernelSuHal`（type 16）
 
 `KernelSuHal.handle(LocalSocket)`（`KernelSuHal.java:15-25`）：
 
@@ -359,7 +403,7 @@ host → guest : 988 字节，定长
 - `isSupported()` 在本版恒为 `true`（`KernelSuHal.java:19-21`）；`false` 分支（`s0.java:46-48` `"KernelSU HAL unsupported in this backend"`）是给别的后端留的。
 - native 侧拿到的是什么语义（KernelSU 的 `fd` 代理 / 提权通道 / 直接与 `ksud` 对话）：**未解**，需要 `nativeHandle` 的反汇编。
 
-## 7. 证据索引
+## 9. 证据索引
 
 | 结论 | 类#方法 / 常量 |
 |---|---|
@@ -397,11 +441,11 @@ host → guest : 988 字节，定长
 | 时间通道 | `k#h(Context,LocalSocket)`（`k.java:212-270`） |
 | 宿主广播通道 | `b0#a`（`b0.java:23-37`）、`z#onReceive` case 1（`z.java:100-122`） |
 
-## 8. 未解问题
+## 10. 未解问题
 
 1. **`android.net.LocalSocket(int)` 的 `2` / `3` 到底映射哪个 `SOCKET_*`**。反编译只有字面值（`d8/d.java:64` = 2，`io/twoyi/m.java:101` = 3），且两者都用于 `bind`+`accept`。本机实测 AF_UNIX 上 `SOCK_DGRAM` 不能 `listen()`、`SOCK_SEQPACKET` 可以，所以二者都必须是面向连接的类别；具体取值需在真机上看 `socket(2)` 的 `type` 参数或 `/proc/net/unix` 的 flags。
-2. **camera type 6 的 opcode 编号**。`g0.g` 与 `v.h` 都是 `Method dump skipped`（1203 / 455 条指令）。已知的只有：通用 32 字节头、seq 递增、错误帧、24 字节帧头、NV21 像素、type 5 的 opcode=1。要拿到编号需要在云端用 jadx `--show-bad-code` 或直接看 smali/`dexdump`。
-3. **camera type 5 的目录 payload 布局**（`a8.d2.C(ArrayList)`，808 条指令未反编译）。只能列出目录项的**语义字段**（`io.twoyi.hal.a`：id / lensFacing / orientation / `List<g>` 尺寸 / `List<e>` fps 区间 / ae、awb、af 模式数组 / timestampSource / AE 补偿 min,max,num,den / 最小焦距）。
+2. **camera opcode 2..6 各自的语义**（编号已解，见 §7；语义未定）。
+3. **camera type 5 的目录 payload 布局**（需要看 `g0.f` / 目录项序列化的具体偏移）。只能列出目录项的**语义字段**（`io.twoyi.hal.a`：id / lensFacing / orientation / `List<g>` 尺寸 / `List<e>` fps 区间 / ae、awb、af 模式数组 / timestampSource / AE 补偿 min,max,num,den / 最小焦距）。
 4. **帧头 24 字节与像素包的 opcode 对应关系**（同一 opcode 的第二包？还是不同 opcode？）——同 2。
 5. **`TwoyiResolverHal` 360/988 的字段布局**：完全在 `libtwoyi.so` 的 `nativeResolve` 内；Java 层只固定了长度、超时与「一问一答一连接」。
 6. **`KernelSuHal` native 侧用 fd 做什么**：`nativeHandle(int fd)` 之后的行为无 Java 证据。
@@ -409,7 +453,7 @@ host → guest : 988 字节，定长
 8. **`twoyi_camera_transport` 由谁 bind**：Java 层不存在该名字。要么 0.7.5 的来宾 `camera.goldfish.so` 已改为连 `@twoyi_hal` type 5/6，要么该名字由 `libtwoyi.so` 绑定后再转 Java（`libtwoyi.so` 无导出符号可查，需反汇编 `JNI_OnLoad`/字符串 xref）。
 9. **type 9 的 8 字节负载语义**（时间值？时区？），以及 type 9 首字节 `0/1` 之外的取值行为（未处理 → 关闭）。
 
-## 9. 对重写/验收的含义
+## 11. 对重写/验收的含义
 
 - 只要实现 `@twoyi_hal` 的「`int32 LE type` + 回显」两段，再加上**任一**模块的后续字节，就能让该模块工作；其余模块不可混用格式。
 - 想先做最小可用闭环，优先级建议：vibrator（1 个 int32，无应答）→ lights（1 个 int32）→ sensors（3 条命令 + 定长事件）→ audio 控制（1 条命令 + 状态码）→ audio 播放/录音（裸 PCM，最容易验证）→ gps（握手 + 单字节命令 + TGPS 帧）→ camera（自描述 32 字节头，但 opcode 未解，风险最高）。

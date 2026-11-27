@@ -139,6 +139,22 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段一补漏：camera opcode 由 smali 解出（本轮）
+
+- 起因：上一版 `HAL_PROTOCOL.md` 把 camera opcode 列为空缺，理由是 jadx 跳过了两个方法。
+  换手段就能拿到——**apktool 解 smali** 不丢方法体。
+- 新增 `.github/workflows/smali-focus.yml`：只解 smali（`--no-res`），定位
+  `io/twoyi/hal/g0.smali`（4027 行）与 `a8/d2.smali`（9794 行），抽全部 `const` 与 write 上下文，
+  并把两个完整 smali 作为 artifact 上传供离线阅读。
+- **实证结果**（run 45914008675，`g0.smali` 的 `g(f0,i,OutputStream)`）：
+  - 请求 opcode 来自来宾（`iget v0, v3, Lio/twoyi/hal/i;->a:I`），**不是宿主常量**；
+  - 宿主分支覆盖 **2 / 3 / 4 / 5 / 6**，未知值走 fallthrough 仍写应答，不报错；
+  - 应答 opcode = 请求 `| 0x8000`（`const v2, 0x8000` + `or-int/2addr`，同方法三处）。
+- **同时纠错**：上一版把 `a8.d2` 当成 camera 目录 payload 的来源是误判——`d2.smali` 是混淆过的 UI 类
+  （含 `EditText`/`Parcel`/`AttributeSet`），与 camera 无关。已在文档里写明更正。
+- `docs/STAGE1_STATUS.md` 与 `docs/HAL_PROTOCOL.md` §7/§10 同步更新；剩下的 camera 空缺收紧为
+  「opcode 2..6 的语义」与「目录 payload 偏移」。
+
 ## 阶段二第八轮：resolver 信封（新增 5 项，合计 24 项）
 
 - 新增 `tools/miniloader/src/resolver.rs`：把 `docs/HAL_PROTOCOL.md` §5 里 Java 层的硬事实落成代码——
