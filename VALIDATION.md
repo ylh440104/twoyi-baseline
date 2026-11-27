@@ -139,6 +139,22 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段三轮（续六）：密钥只留在本机（host 用例 + 构建通过）
+
+- 最新版承诺「密钥只保存在本机」，所以连接不再只存一个 model 名：
+  - `TwinSecretFormat.java`（纯逻辑，宿主可测）：把 GCM nonce + 密文打包成 `v1:<base64>` 信封，
+    校验 nonce 必须 12 字节、密文至少一个 16 字节 tag；自带小 base64 以便脱离 Android 测试。
+  - `TwinSecretStore.kt`：Android Keystore AES-256/GCM（`AndroidKeyStore`，别名 `twin-provider-key`），
+    `seal`/`open` 失败返回 null 而不是抛出。
+  - `TwinRuntime`：保存 baseUrl + model + 密钥信封；`providerConfig()` 读回时解密；
+    封不上就返回 false，界面显示 `twin_key_save_failed` 而不是假装成功。
+  - 设置页的「模型」一行现在同时显示模型名与 API 地址。
+- 证据：run 45924216077 的 `PASS: provider secret envelope packs a nonce and ciphertext safely`
+  （同批 `PASS: model catalog ...`、`PASS: provider form rules ...` 仍在）；
+  Android 构建 run 45924215995 通过。
+- 边界：Keystore 本身**无法在 CI 里跑**（需要 Android 运行时），所以只验证了信封格式与纯 Java 的
+  base64 往返；加解密在真机上仍未验证。
+
 ## 阶段三轮（续五）：模型列表真的会去拉（host 用例 + 构建通过）
 
 - 新增 `TwinModelCatalog.java`（纯逻辑，宿主可测）：
