@@ -139,6 +139,28 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段二十一：真的 mmap（32 项单测 + 真实 ELF 映射成功）
+
+- 新增 `tools/miniloader/src/executor.rs`：`MappedImage::map(elf, page)` 走官方 loader 同一套序列——
+  一次 `PROT_NONE` 预留整段 → 逐段改成可写、`copy_nonoverlapping` 拷文件字节 →
+  `mprotect` 成该段自己的权限；`Drop` 里 `munmap`。失败路径会先 `munmap` 再返回错误，不留泄漏。
+  新增依赖 `libc = "=0.2.126"`（对应 1.60 MSRV）。
+- 新增 `tests/executor.rs` 4 项：映射后按虚拟地址读回的文件字节与源一致、bss 尾部读为 0、
+  两段各自权限正确（`prot=5` / `prot=6`）、越界读返回 None、64 次映射-释放循环不耗尽地址空间。
+- **真实 AArch64 ELF 在 CI 里被真的映射进进程**（run 45929873394）：
+  ```
+  mapped: entry=0x7fad3408b10c segments=1
+  mapped[0] addr=0x7fad3408b000 file=336 mem=336 prot=5
+  entry bytes: ff 43 00 d1
+  ```
+  `0x7fad3408b10c − 0x7fad3408b000 = 0x10c = 268`，与干跑镜像的 `entry_offset=Some(268)` 一致；
+  入口字节 `ff 43 00 d1` 正是 AArch64 的 `sub sp, sp, #0x10`（编译器为 `_start` 生成的第一条指令），
+  说明拷进去的确实是那个二进制。
+- 测试合计 **32 项**（executor 4 + image 4 + plan 8 + proto 6 + handshake 5 + resolver 5）。
+  首次失败（45929489813）是两个类型问题：`MapError → ExecError` 缺 `From`、`prot` 是 `u32` 而
+  `libc::mprotect` 要 `i32`，都已修。
+- 边界：**没有跳转执行**（映进来的是 AArch64 代码，CI 是 x86），也没有重定位与握手。
+
 ## 阶段二十轮：把段真正摆进内存（干跑镜像，28 项单测 + 真实 ELF）
 
 - 新增 `tools/miniloader/src/image.rs`：`GuestImage::load(elf, page)` 按映射计划把每个 `PT_LOAD`
