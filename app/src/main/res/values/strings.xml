@@ -204,4 +204,20 @@
     <string name="twin_parse_error">Could not read the model response. Please try again later.</string>
     <string name="twin_provider_fetching_models">Fetching models...</string>
     <string name="twin_key_save_failed">Could not securely save the key on this device. Please try again.</string>
+    <string name="twin_status_running">Working</string>
+    <string name="twin_status_paused">Paused</string>
+    <string name="twin_status_stopping_hand">Your Twin is stopping…</string>
+    <string name="twin_status_stopping_hand_sub">You get the phone after this step</string>
+    <string name="twin_status_user">You\'re in control</string>
+    <string name="twin_status_done">Done</string>
+    <string name="twin_status_done_sub">See the result in Twin</string>
+    <string name="twin_status_doing">%1$s…</string>
+    <string name="twin_status_steps">Step %1$d</string>
+    <string name="twin_status_user_paused_at">Your Twin paused at step %1$d</string>
+    <string name="twin_agent_queued">OK. Your Twin phone is starting. I will begin when it is ready.</string>
+    <string name="twin_agent_preparing">Reading the phone screen…</string>
+    <string name="twin_agent_failed">Task not completed. See the chat for details.</string>
+    <string name="twin_pause">Pause</string>
+    <string name="twin_resume">Resume</string>
+    <string name="twin_stop_task">Stop</string>
 </resources>

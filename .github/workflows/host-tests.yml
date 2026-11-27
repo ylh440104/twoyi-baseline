@@ -41,6 +41,7 @@ jobs:
             app/src/main/java/io/twoyi/TwinProviderRules.java \
             app/src/main/java/io/twoyi/TwinModelCatalog.java \
             app/src/main/java/io/twoyi/TwinSecretFormat.java \
+            app/src/main/java/io/twoyi/TwinTaskState.java \
             app/src/main/java/io/twoyi/HalConnectionRegistry.java \
             app/src/main/java/io/twoyi/WindowOwner.java \
             app/src/main/java/io/twoyi/utils/RomInstallTransaction.java \
@@ -159,6 +160,13 @@ jobs:
           java -cp "$RUNNER_TEMP/service-slot-tests" io.twoyi.GuestServiceSlotTest
       - name: Guard guest paths against data-directory derivation
         run: python3 tools/check_slot_paths.py
+      - name: Verify twin task state
+        run: |
+          mkdir -p "$RUNNER_TEMP/task-state"
+          javac -d "$RUNNER_TEMP/task-state" \
+            app/src/main/java/io/twoyi/TwinTaskState.java \
+            tools/TwinTaskStateTest.java
+          java -cp "$RUNNER_TEMP/task-state" io.twoyi.TwinTaskStateTest
       - name: Verify provider secret envelope
         run: |
           mkdir -p "$RUNNER_TEMP/secret-format"

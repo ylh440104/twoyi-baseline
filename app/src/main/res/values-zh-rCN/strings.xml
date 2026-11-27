@@ -202,4 +202,20 @@
     <string name="twin_parse_error">无法解析模型返回内容，请稍后再试。</string>
     <string name="twin_provider_fetching_models">正在获取模型列表…</string>
     <string name="twin_key_save_failed">无法在本机安全保存密钥，请重试。</string>
+    <string name="twin_status_running">正在执行</string>
+    <string name="twin_status_paused">已暂停</string>
+    <string name="twin_status_stopping_hand">孪生正在停下…</string>
+    <string name="twin_status_stopping_hand_sub">这一步结束后手机就交给你</string>
+    <string name="twin_status_user">由你操作</string>
+    <string name="twin_status_done">已完成</string>
+    <string name="twin_status_done_sub">在孪生里查看结果</string>
+    <string name="twin_status_doing">%1$s…</string>
+    <string name="twin_status_steps">第 %1$d 步</string>
+    <string name="twin_status_user_paused_at">孪生在第 %1$d 步暂停了</string>
+    <string name="twin_agent_queued">好，孪生手机正在启动，就绪后我就开始。</string>
+    <string name="twin_agent_preparing">正在读取手机画面…</string>
+    <string name="twin_agent_failed">任务未完成，详情见对话。</string>
+    <string name="twin_pause">暂停</string>
+    <string name="twin_resume">继续</string>
+    <string name="twin_stop_task">停止</string>
 </resources>

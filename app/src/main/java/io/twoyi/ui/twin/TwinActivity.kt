@@ -43,6 +43,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.twoyi.R
 import io.twoyi.TwinProviderRules
+import io.twoyi.TwinTaskState
 
 /**
  * Compose shell mirroring the newest build's structure: a two-step onboarding, a
@@ -98,6 +99,7 @@ private class TwinState(
     var error by mutableStateOf(phone.message)
     var model by mutableStateOf(modelConnected)
     var draft by mutableStateOf("")
+    var task by mutableStateOf(TwinTaskState.Phase.IDLE)
     val messages = mutableStateListOf<Line>()
 }
 
@@ -278,6 +280,7 @@ private fun TwinSurface(state: TwinState) {
                 }
             }
         }
+        TaskStatusBar(state)
         val waiting = state.messages.any { it is Line.Need && !it.resolved }
         if (waiting) {
             Text(
@@ -289,6 +292,76 @@ private fun TwinSurface(state: TwinState) {
         Divider()
         Composer(state)
     }
+}
+
+/**
+ * Live task status: what the Twin is doing and which controls apply. The wording
+ * and the allowed actions both come from the newest build; the guards live in
+ * `TwinTaskState` so they are host-tested.
+ */
+@Composable
+private fun TaskStatusBar(state: TwinState) {
+    val phase = state.task
+    if (phase == TwinTaskState.Phase.IDLE) {
+        return
+    }
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = stringResource(statusLabel(phase)),
+                style = MaterialTheme.typography.labelLarge
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (TwinTaskState.canPause(phase) || TwinTaskState.canResume(phase)) {
+                    OutlinedButton(onClick = {
+                        state.task = if (TwinTaskState.canResume(phase)) {
+                            TwinTaskState.onResume(phase)
+                        } else {
+                            TwinTaskState.onPause(phase)
+                        }
+                    }) {
+                        Text(
+                            stringResource(
+                                if (TwinTaskState.canResume(phase)) R.string.twin_resume
+                                else R.string.twin_pause
+                            )
+                        )
+                    }
+                }
+                if (TwinTaskState.canStop(phase)) {
+                    OutlinedButton(onClick = {
+                        state.task = TwinTaskState.onStopRequested(phase)
+                    }) { Text(stringResource(R.string.twin_stop_task)) }
+                }
+                if (TwinTaskState.canTakeOver(phase)) {
+                    TextButton(onClick = {
+                        state.task = TwinTaskState.onTakeOver(phase)
+                    }) { Text(stringResource(R.string.twin_status_user)) }
+                }
+                if (phase == TwinTaskState.Phase.USER_IN_CONTROL) {
+                    Button(onClick = {
+                        state.task = TwinTaskState.onHandBack(phase)
+                    }) { Text(stringResource(R.string.twin_resume)) }
+                }
+            }
+        }
+    }
+}
+
+private fun statusLabel(phase: TwinTaskState.Phase): Int = when (phase) {
+    TwinTaskState.Phase.IDLE -> R.string.twin_status_done
+    TwinTaskState.Phase.QUEUED -> R.string.twin_agent_queued
+    TwinTaskState.Phase.PREPARING -> R.string.twin_agent_preparing
+    TwinTaskState.Phase.RUNNING -> R.string.twin_status_running
+    TwinTaskState.Phase.PAUSED -> R.string.twin_status_paused
+    TwinTaskState.Phase.STOPPING -> R.string.twin_status_stopping_hand
+    TwinTaskState.Phase.USER_IN_CONTROL -> R.string.twin_status_user
+    TwinTaskState.Phase.DONE -> R.string.twin_status_done
+    TwinTaskState.Phase.FAILED -> R.string.twin_agent_failed
 }
 
 @Composable
@@ -403,6 +476,12 @@ private fun Composer(state: TwinState) {
                 val text = state.draft.trim()
                 state.messages.add(Line.User(text))
                 state.draft = ""
+                if (TwinTaskState.canStart(state.task)) {
+                    state.task = TwinTaskState.onStart(state.task)
+                    // The shell has no task engine yet: move to RUNNING so the live
+                    // controls can be exercised. The runtime will drive this later.
+                    state.task = TwinTaskState.Phase.RUNNING
+                }
                 val consequence = riskyConsequence(text)
                 if (consequence != null && TwinRuntime.isFlag(context, TwinRuntime.FLAG_CONFIRM_RISKY)) {
                     // Placeholder turn: the real model will produce this question. The
