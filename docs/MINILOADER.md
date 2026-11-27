@@ -95,4 +95,3 @@ Termux 本身就是 Android + bionic + aarch64，装了 Rust 1.100 后可在**�
 `toybox` 那 19 个「缺失」暴露了一个真问题：**我们没有实现 `DT_NEEDED` 依赖库加载**。
 真实动态链接器会先加载 `libz.so`/`libselinux.so`/`liblog.so` 再解析符号；我们目前只在**当前进程**
 里 `dlsym`。对来宾 `init` 没影响（它是静态的），但任何动态链接的来宾二进制都会因此被判 blocked。
-
