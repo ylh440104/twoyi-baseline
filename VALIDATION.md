@@ -139,6 +139,20 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段三轮（续四）：模型连接表单的本地校验（host 用例 + 构建通过）
+
+- 新增 `TwinProviderRules.java`（不含 Android 类型，可在宿主机跑）：三类本地拒绝——
+  key 为空（`REQUIRED`）、key 含空格/换行/全角或非 ASCII（`BAD_CHARS`）、
+  URL 非 http(s) 或畸形（`NOT_HTTP`/`MALFORMED`），另有模型名两端不得有空白的规则。
+- 新增 `tools/TwinProviderRulesTest.java`，并入 host 回归：覆盖 null/空白 key、空格、换行、
+  全角、中文、超长 key；缺 scheme、错 scheme、只有 scheme、空 host、非数字端口、host 含空格；
+  模型名首尾空格；以及 `canConnect` 的组合判断。
+- 证据：run 45922802725 的 `PASS: provider form rules reject empty, non-ASCII and non-http input`；
+  Android 构建 run 45922802712 通过。
+- 界面：连接页在提交时逐项校验并显示对应文案（`twin_api_key_required`、`twin_api_key_bad_chars`、
+  `twin_base_url_invalid`），全部通过后才写入偏好并返回。
+- 边界：只做**本地**规则；服务端拒绝（`twin_key_invalid`、`twin_model_not_found`）要等真正的网络请求。
+
 ## 阶段三轮（续三）：确认回合（构建通过）
 
 - 会话消息从 `Pair<String, Boolean>` 改成三种 `Line`：`User`、`Twin`、`Need`。
