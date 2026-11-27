@@ -139,6 +139,23 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段二十轮：把段真正摆进内存（干跑镜像，28 项单测 + 真实 ELF）
+
+- 新增 `tools/miniloader/src/image.rs`：`GuestImage::load(elf, page)` 按映射计划把每个 `PT_LOAD`
+  摆进一块 **arena**（长度 = 预留跨度），复制文件字节、bss 尾部保持 0，并给出
+  `entry_offset()`、`entry_segment()`、`read_vaddr(addr, len)`。
+  这是真 `mmap` 之前的**干跑**：布局、拷贝偏移、清零都能在任意宿主上验证。
+- 新增 `tests/image.rs` 4 项：段落到页对齐地址、文件字节逐字节一致、bss 全 0、
+  按虚拟地址读回同样字节、越界段被拒、entry 在镜像外时无偏移。
+- 真实 ELF 端到端：CI 用交叉编译的 aarch64 `_start` 程序跑 CLI，输出
+  `image: base=0x400000 arena=4096 bytes entry_offset=Some(268)`
+  —— entry `0x40010c` 正好是 base 之后第 268 字节，与 `readelf` 的入口一致。
+- 证据：run 45928406023 全绿（image 4 + plan 8 + proto 6 + handshake 5 + resolver 5 = 28 项），
+  其中 `test segments_are_placed_and_file_bytes_copied ... ok`、
+  `test addresses_are_page_aligned_and_bias_is_respected ... ok`。
+  首次失败（45928051472）只是 `PROT_EXEC` 未使用的 import，已删。
+- 边界：**仍然是内存里的字节，不是真的 mmap**；没有重定位、没有跳转、没有握手。
+
 ## 阶段二第九轮：用真实 aarch64 ELF 验证映射计划（CI 通过）
 
 - 之前 `miniloader-plan` 只在**合成字节**和一次「x86 二进制被干净拒绝」上验证过，
