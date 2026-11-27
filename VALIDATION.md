@@ -139,6 +139,20 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段三轮（续八）：来宾相位显示与「复用已运行会话」（构建通过）
+
+- `TwinRuntime` 新增 `guestPhase()`：把 `TwoyiStatusManager.phase()` 的
+  `STOPPED/STARTING/RUNNING/FAILED` 暴露成界面能用的枚举；新增 `reopenPhone()`。
+- 关键修正：**已经跑起来的来宾不能被再次「启动」**。之前 Phone 页不管状态都走 `startPhone`，
+  而 `startPhone` 会过 `requireStartable` 再激活并拉新窗口——对运行中的会话是错的。
+  现在 `RUNNING/STARTING` 走 `reopenPhone()`（只拉窗口），只有停止态才走启动路径。
+- 界面：Phone 页按相位显示「启动中 / 正在执行 / 启动失败 / 准备中」；设置页的「孪生使用的手机」
+  一行改为显示实时相位；主界面每秒读一次相位（`LaunchedEffect` + `delay`）。
+- 新增依赖 `kotlinx-coroutines-android:1.6.0`（`delay` 用），显式声明而不是靠传递依赖。
+- 证据：Android 构建 run 45926222423 通过；host 回归 run 45926222264 通过。
+- 边界：相位来自进程内状态机，**真机上没人验证过**「启动中→运行」是否真的会发生；
+  界面只反映它，不制造它。
+
 ## 阶段三轮（续七）：任务直播状态与三个控件（host 用例 + 构建通过）
 
 - 新增 `TwinTaskState.java`（纯逻辑，宿主可测）：九个阶段
