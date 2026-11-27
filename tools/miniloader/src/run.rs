@@ -586,22 +586,49 @@ fn run_child(
     // inherited pointer for now.
     let tp = block_base + tls_size;
     if tls_size > 0 {
-        unsafe {
-            core::arch::asm!("msr tpidr_el0, {}", in(reg) tp, options(nostack, preserves_flags));
-        }
+        set_thread_pointer(tp);
     }
 
     if std::env::var("TWOYI_TRACE_FAULT").is_ok() {
         eprintln!("jumping to entry=0x{entry:x} sp=0x{base_address:x}");
     }
+    enter_guest(entry, base_address)
+}
+
+/// Point the thread pointer at the guest's static TLS block.
+///
+/// Only AArch64 guests are supported, so on any other host this is a no-op: the crate
+/// still builds everywhere for testing, it just cannot run a guest there.
+#[cfg(target_arch = "aarch64")]
+fn set_thread_pointer(tp: u64) {
+    unsafe {
+        core::arch::asm!("msr tpidr_el0, {}", in(reg) tp, options(nostack, preserves_flags));
+    }
+}
+
+#[cfg(not(target_arch = "aarch64"))]
+fn set_thread_pointer(_tp: u64) {}
+
+/// Hand control to the guest: stack pointer first, then the entry point.
+///
+/// `blr` rather than `br` so a guest that returns lands on the trap instead of into
+/// whatever happens to follow in memory.
+#[cfg(target_arch = "aarch64")]
+fn enter_guest(entry: u64, stack_pointer: u64) -> ! {
     unsafe {
         core::arch::asm!(
             "mov sp, x9",
             "blr x10",
             "brk #1",
-            in("x9") base_address,
+            in("x9") stack_pointer,
             in("x10") entry,
             options(noreturn),
         );
     }
+}
+
+/// A guest is AArch64 code; there is nothing to jump to on another host.
+#[cfg(not(target_arch = "aarch64"))]
+fn enter_guest(_entry: u64, _stack_pointer: u64) -> ! {
+    unsafe { libc::_exit(124) }
 }
