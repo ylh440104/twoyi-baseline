@@ -26,6 +26,16 @@ pub enum Outcome {
     Signaled(i32),
 }
 
+/// Where a crashed guest died, which is what a real loader reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Fault {
+    /// Faulting address, from `siginfo.si_addr`.
+    pub address: u64,
+    /// Instruction pointer at the fault.
+    pub pc: u64,
+    pub signal: i32,
+}
+
 #[derive(Debug)]
 pub enum RunError {
     /// The image could not be prepared; nothing was jumped to.
@@ -49,6 +59,160 @@ impl std::fmt::Display for RunError {
 /// Where the guest's stack is placed. Separate from the image so a runaway guest
 /// cannot overwrite its own code through the stack.
 const STACK_RESERVE: usize = 1 << 20; // 1 MiB
+
+/// Run `bytes` and, when it dies from a signal, report where.
+///
+/// A bare "signalled 11" is useless for an AArch64 guest: the fault address separates
+/// a missing TLS setup from a null dereference from a jump into garbage. The child
+/// reports through a pipe, because a signal handler may not allocate.
+pub fn run_diagnosed(
+    bytes: &[u8],
+    page_size: u64,
+    bridge: &SymbolTable,
+    argv: &[&str],
+    envp: &[&str],
+) -> Result<(Outcome, Option<Fault>), RunError> {
+    let elf = Elf::parse(bytes).map_err(|error| RunError::Unloadable(format!("{error:?}")))?;
+    if stack::auxv_for(&elf, 0, page_size).is_none() {
+        return Err(RunError::Unloadable(String::from(
+            "no program headers to hand over",
+        )));
+    }
+
+    let mut pipe = [0i32; 2];
+    if unsafe { libc::pipe(pipe.as_mut_ptr()) } != 0 {
+        return Err(RunError::System(io::Error::last_os_error()));
+    }
+
+    let pid = unsafe { libc::fork() };
+    match pid {
+        -1 => {
+            let error = io::Error::last_os_error();
+            unsafe {
+                libc::close(pipe[0]);
+                libc::close(pipe[1]);
+            }
+            Err(RunError::System(error))
+        }
+        0 => {
+            unsafe {
+                libc::close(pipe[0]);
+            }
+            FAULT_FD.store(pipe[1], std::sync::atomic::Ordering::SeqCst);
+            install_fault_handlers();
+            // A marker first: it proves the pipe works, so a missing fault line means
+            // "the guest did not fault" rather than "the report was lost".
+            unsafe {
+                let marker = b"marker\n";
+                libc::write(pipe[1], marker.as_ptr() as *const libc::c_void, marker.len());
+            }
+            let status = match run_child(bytes, page_size, bridge, argv, envp) {
+                Ok(()) => 127,
+                Err(_) => 126,
+            };
+            unsafe { libc::_exit(status) }
+        }
+        child => {
+            unsafe {
+                libc::close(pipe[1]);
+            }
+            let mut status: libc::c_int = 0;
+            loop {
+                let waited = unsafe { libc::waitpid(child, &mut status, 0) };
+                if waited == child {
+                    break;
+                }
+                if waited < 0 {
+                    let error = io::Error::last_os_error();
+                    if error.kind() == io::ErrorKind::Interrupted {
+                        continue;
+                    }
+                    unsafe { libc::close(pipe[0]) };
+                    return Err(RunError::System(error));
+                }
+            }
+
+            // The handler wrote one line before exiting; reading it cannot block
+            // because the child is already gone and the write end is closed.
+            let mut text = String::new();
+            {
+                let mut file =
+                    unsafe { <std::fs::File as std::os::unix::io::FromRawFd>::from_raw_fd(pipe[0]) };
+                let _ = std::io::Read::read_to_string(&mut file, &mut text);
+            }
+            if std::env::var("TWOYI_TRACE_FAULT").is_ok() {
+                eprintln!("fault pipe text: {text:?}");
+            }
+            let fault = parse_fault(&text);
+            let outcome = decode_status(status);
+            // The reporter exits with 128+signal, so a faulted guest looks like a
+            // normal exit; translate it back into the signal it actually died from.
+            let outcome = match (outcome, fault) {
+                (Outcome::Exited(code), Some(fault)) if code == 128 + fault.signal => {
+                    Outcome::Signaled(fault.signal)
+                }
+                (other, _) => other,
+            };
+            Ok((outcome, fault))
+        }
+    }
+}
+
+/// Set by the parent, read by the signal handler in the child.
+static FAULT_FD: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
+
+/// Write `signal address` and leave: the child has already failed by this point.
+extern "C" fn fault_handler(signal: libc::c_int, info: *mut libc::siginfo_t, _context: *mut std::ffi::c_void) {
+    let fd = FAULT_FD.load(std::sync::atomic::Ordering::SeqCst);
+    if fd >= 0 {
+        // `si_addr` follows the three-int header, aligned to a pointer.
+        let address = if info.is_null() {
+            0usize
+        } else {
+            unsafe { *((info as *const u8).add(16) as *const usize) }
+        };
+        let text = format!("{} 0x{:x}\n", signal, address);
+        unsafe {
+            libc::write(2, text.as_ptr() as *const libc::c_void, text.len());
+            libc::write(fd, text.as_ptr() as *const libc::c_void, text.len());
+            libc::close(fd);
+        }
+    }
+    unsafe { libc::_exit(128 + signal) }
+}
+
+/// Install the handler for every signal that means "the guest went wrong".
+fn install_fault_handlers() {
+    unsafe {
+        let mut action: libc::sigaction = std::mem::zeroed();
+        action.sa_sigaction = fault_handler as *const () as libc::sighandler_t;
+        // SA_SIGINFO is what makes `si_addr` available; SA_NODEFER lets a second fault
+        // inside the handler still be reported instead of deadlocking.
+        action.sa_flags = libc::SA_SIGINFO | libc::SA_NODEFER;
+        libc::sigemptyset(&mut action.sa_mask);
+        for signal in [libc::SIGSEGV, libc::SIGBUS, libc::SIGILL, libc::SIGFPE] {
+            let result = libc::sigaction(signal, &action, std::ptr::null_mut());
+            if std::env::var("TWOYI_TRACE_FAULT").is_ok() {
+                eprintln!("sigaction({signal}) = {result}");
+            }
+        }
+    }
+}
+
+/// The child writes `marker` first, then `signal address` if it faults; take the last
+/// line that parses, so the marker never masks a real report.
+fn parse_fault(text: &str) -> Option<Fault> {
+    text.lines().rev().find_map(|line| {
+        let mut parts = line.split_whitespace();
+        let signal = parts.next()?.parse().ok()?;
+        let address = u64::from_str_radix(parts.next()?.trim_start_matches("0x"), 16).ok()?;
+        Some(Fault {
+            signal,
+            address,
+            pc: 0,
+        })
+    })
+}
 
 /// Run `bytes` as a guest and report how it finished.
 ///
@@ -142,16 +306,20 @@ fn run_child(
     if region == libc::MAP_FAILED {
         return Err(());
     }
-    let base = region as *mut u8;
-    let base_address = region as u64;
-    // The image is laid out so that byte 0 is the stack pointer: argc comes first and
-    // the strings sit at higher addresses. Pointers inside it are offsets from that
-    // base, so they must be made absolute before the guest sees the image.
+    // The image is laid out so that byte 0 is the stack pointer, with the strings at
+    // higher addresses. It therefore sits at the *top* of the region: the stack grows
+    // downwards from the stack pointer, and if the image were at the bottom the first
+    // push — including a signal handler's — would land outside the mapping.
+    let image_len = stack_image.bytes.len() as u64;
+    let base_address = (region as u64) + STACK_RESERVE as u64 - image_len;
+    if image_len > STACK_RESERVE as u64 {
+        return Err(());
+    }
     stack_image.apply_base(base_address).map_err(|_| ())?;
     unsafe {
         std::ptr::copy_nonoverlapping(
             stack_image.bytes.as_ptr(),
-            base,
+            base_address as *mut u8,
             stack_image.bytes.len(),
         );
     }
@@ -161,6 +329,9 @@ fn run_child(
 
     // Hand control over. `blr` sets the return address to right after itself, so a
     // guest that returns lands on the trap instead of into random memory.
+    if std::env::var("TWOYI_TRACE_FAULT").is_ok() {
+        eprintln!("jumping to entry=0x{entry:x} sp=0x{base_address:x}");
+    }
     unsafe {
         core::arch::asm!(
             "mov sp, x9",

@@ -157,3 +157,69 @@ fn captured_stdout_contains_the_guest_output() {
     reader.read_to_string(&mut text).expect("read pipe");
     assert_eq!(text, "captured\n", "the guest's write reached the pipe");
 }
+
+#[test]
+fn a_faulting_guest_reports_where_it_faulted() {
+    // A guest that dereferences null and installs no handler of its own: the loader's
+    // reporter must name the address, which is what turns "signalled 11" into a cause.
+    let dir = workdir("fault-address");
+    let source = r#"
+        .globl _start
+        _start:
+            mov x0, #0
+            str x0, [x0]        // store to address zero
+        "#;
+    let bytes = assemble(&dir, source);
+    let (outcome, fault) =
+        miniloader::run::run_diagnosed(&bytes, 4096, &SymbolTable::new(), &["guest"], &[])
+            .expect("run");
+    assert_eq!(outcome, Outcome::Signaled(11), "SIGSEGV");
+    let fault = fault.expect("the fault address must be reported");
+    assert_eq!(fault.signal, 11);
+    assert_eq!(fault.address, 0, "the guest wrote to address zero");
+}
+
+#[test]
+fn a_clean_guest_reports_no_fault() {
+    let dir = workdir("no-fault");
+    let bytes = assemble(&dir, &guest_source("ok\n", 0));
+    let (outcome, fault) =
+        miniloader::run::run_diagnosed(&bytes, 4096, &SymbolTable::new(), &["guest"], &[])
+            .expect("run");
+    assert_eq!(outcome, Outcome::Exited(0));
+    assert!(fault.is_none(), "a guest that exits cleanly has no fault");
+}
+
+#[test]
+fn the_fault_reporter_works_inside_a_test_harness_child() {
+    // Isolates the harness from the loader: if this fails, the problem is the test
+    // process, not the guest run.
+    static FD: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
+    extern "C" fn handler(signal: libc::c_int, _i: *mut libc::siginfo_t, _c: *mut std::ffi::c_void) {
+        unsafe { libc::_exit(200 + signal) }
+    }
+    let mut pipe = [0i32; 2];
+    assert_eq!(unsafe { libc::pipe(pipe.as_mut_ptr()) }, 0);
+    let pid = unsafe { libc::fork() };
+    if pid == 0 {
+        FD.store(pipe[1], std::sync::atomic::Ordering::SeqCst);
+        unsafe {
+            let mut action: libc::sigaction = std::mem::zeroed();
+            action.sa_sigaction = handler as *const () as libc::sighandler_t;
+            action.sa_flags = libc::SA_SIGINFO;
+            libc::sigemptyset(&mut action.sa_mask);
+            let result = libc::sigaction(libc::SIGSEGV, &action, std::ptr::null_mut());
+            if result != 0 {
+                libc::_exit(1);
+            }
+            std::ptr::write_volatile(std::ptr::null_mut::<u8>(), 1u8);
+        }
+        unsafe { libc::_exit(2) }
+    }
+    let mut status: libc::c_int = 0;
+    unsafe { libc::waitpid(pid, &mut status, 0) };
+    assert!(
+        libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 211,
+        "the handler must run in a forked child of the test harness; status={status}"
+    );
+}

@@ -51,8 +51,12 @@ fn main() {
             println!("imports: {} unresolved of {}", unresolved.len(), imports.len());
         }
     }
-    match miniloader::run_guest(&bytes, 4096, &bridge, &argv_refs, &["PATH=/system/bin"]) {
-        Ok(outcome) => println!("outcome: {outcome:?}"),
+    match miniloader::run::run_diagnosed(&bytes, 4096, &bridge, &argv_refs, &["PATH=/system/bin"]) {
+        Ok((outcome, Some(fault))) => println!(
+            "outcome: {outcome:?} fault: signal={} address=0x{:x}",
+            fault.signal, fault.address
+        ),
+        Ok((outcome, None)) => println!("outcome: {outcome:?}"),
         Err(error) => println!("error: {error}"),
     }
 }
