@@ -2,10 +2,13 @@
 """Locate RegisterNatives tables in an ELF shared object.
 
 `libtwoyi.so` exports one symbol (`JNI_OnLoad`) because every native method is
-registered dynamically. The registration table is an array of
-`{ const char* name; const char* signature; void* fnPtr; }` triples, so finding the
-address of a method name string and scanning the data for a pointer to it recovers
-the function that implements it.
+registered dynamically. A registration table is an array of
+`{ const char* name; const char* signature; void* fnPtr; }` triples.
+
+Those tables live in a relocated data section, so the file itself contains zeros
+where the pointers will be and the values only exist as `R_AARCH64_RELATIVE`
+addends in `.rela.dyn`. This script therefore resolves relocations first and then
+scans for pointers to the method-name strings.
 
 Usage:
     python3 find_jni_table.py libtwoyi.so nativeResolve nativeHandle native-fence
@@ -15,6 +18,9 @@ import struct
 import sys
 
 PT_LOAD = 1
+SHT_RELA = 4
+SHT_DYNSYM = 11
+R_AARCH64_RELATIVE = 1027
 
 
 def read_elf(path):
@@ -22,6 +28,7 @@ def read_elf(path):
         data = handle.read()
     if data[:4] != b"\x7fELF" or data[4] != 2 or data[5] != 1:
         raise SystemExit("expected a 64-bit little-endian ELF: " + path)
+
     phoff = struct.unpack_from("<Q", data, 0x20)[0]
     phentsize = struct.unpack_from("<H", data, 0x36)[0]
     phnum = struct.unpack_from("<H", data, 0x38)[0]
@@ -35,10 +42,62 @@ def read_elf(path):
         p_vaddr = struct.unpack_from("<Q", data, base + 0x10)[0]
         p_filesz = struct.unpack_from("<Q", data, base + 0x20)[0]
         segments.append((p_vaddr, p_filesz, p_offset))
-    return data, segments
+
+    shoff = struct.unpack_from("<Q", data, 0x28)[0]
+    shentsize = struct.unpack_from("<H", data, 0x3A)[0]
+    shnum = struct.unpack_from("<H", data, 0x3C)[0]
+    shstrndx = struct.unpack_from("<H", data, 0x3E)[0]
+    sections = []
+    if shoff and shnum:
+        shstr_off = struct.unpack_from("<Q", data, shoff + shstrndx * shentsize + 0x18)[0]
+        for index in range(shnum):
+            base = shoff + index * shentsize
+            name_off = struct.unpack_from("<I", data, base)[0]
+            sh_type = struct.unpack_from("<I", data, base + 0x04)[0]
+            sh_offset = struct.unpack_from("<Q", data, base + 0x18)[0]
+            sh_size = struct.unpack_from("<Q", data, base + 0x20)[0]
+            sh_addr = struct.unpack_from("<Q", data, base + 0x10)[0]
+            end = data.find(b"\x00", shstr_off + name_off)
+            name = data[shstr_off + name_off:end].decode("ascii", "replace")
+            sections.append(
+                {
+                    "name": name,
+                    "type": sh_type,
+                    "offset": sh_offset,
+                    "size": sh_size,
+                    "addr": sh_addr,
+                }
+            )
+    return data, segments, sections
 
 
-def read_cstring(data, segments, vaddr, limit=256):
+def relocation_addends(data, sections):
+    """offset (vaddr) -> addend for every R_AARCH64_RELATIVE relocation."""
+    addends = {}
+    for section in sections:
+        if section["type"] != SHT_RELA or section["size"] == 0:
+            continue
+        count = section["size"] // 24
+        for index in range(count):
+            base = section["offset"] + index * 24
+            offset, info, addend = struct.unpack_from("<QQq", data, base)
+            if (info & 0xFFFFFFFF) == R_AARCH64_RELATIVE:
+                addends[offset] = addend
+    return addends
+
+
+def word_at(data, segments, sections, vaddr, addends):
+    """Read a pointer-sized word at a virtual address, honouring relocations."""
+    if vaddr in addends:
+        value = addends[vaddr]
+        return value & 0xFFFFFFFFFFFFFFFF
+    for seg_vaddr, seg_size, seg_offset in segments:
+        if seg_vaddr <= vaddr < seg_vaddr + seg_size - 7:
+            return struct.unpack_from("<Q", data, seg_offset + (vaddr - seg_vaddr))[0]
+    return 0
+
+
+def read_cstring(data, segments, vaddr, limit=200):
     for seg_vaddr, seg_size, seg_offset in segments:
         if seg_vaddr <= vaddr < seg_vaddr + seg_size:
             start = seg_offset + (vaddr - seg_vaddr)
@@ -50,7 +109,6 @@ def read_cstring(data, segments, vaddr, limit=256):
 
 
 def find_strings(data, segments, needles):
-    """Map a needle to the virtual addresses of every occurrence."""
     found = {}
     for needle in needles:
         target = needle.encode()
@@ -60,7 +118,6 @@ def find_strings(data, segments, needles):
             index = data.find(target, start)
             if index < 0:
                 break
-            # Only accept occurrences that are NUL-terminated and inside a segment.
             if data[index + len(target): index + len(target) + 1] == b"\x00":
                 for seg_vaddr, seg_size, seg_offset in segments:
                     if seg_offset <= index < seg_offset + seg_size:
@@ -71,60 +128,47 @@ def find_strings(data, segments, needles):
     return found
 
 
-def scan_for_pointers(data, segments, targets):
-    """Find data words equal to any target address; return (name, offset_of_word)."""
-    hits = []
-    for seg_vaddr, seg_size, seg_offset in segments:
-        # Only the writable/data segment can hold a table in practice, but scan all.
-        for offset in range(seg_offset, seg_offset + seg_size - 8, 8):
-            word = struct.unpack_from("<Q", data, offset)[0]
-            if word in targets:
-                hits.append((targets[word], seg_vaddr + (offset - seg_offset), offset))
-    return hits
-
-
 def main(argv):
     if len(argv) < 3:
         raise SystemExit(__doc__)
     path = argv[1]
     needles = argv[2:]
-    data, segments = read_elf(path)
-    print("# segments:")
-    for seg_vaddr, seg_size, seg_offset in segments:
-        print("#   vaddr=0x%x size=0x%x file=0x%x" % (seg_vaddr, seg_size, seg_offset))
+    data, segments, sections = read_elf(path)
+    addends = relocation_addends(data, sections)
+    print("# segments: %d, sections: %d, relative relocations: %d"
+          % (len(segments), len(sections), len(addends)))
 
     strings = find_strings(data, segments, needles)
-    addresses = {}
+    name_by_address = {}
     for needle, locations in strings.items():
-        print("string %-16s at %s" % (needle, ", ".join("0x%x" % a for a in locations) or "(absent)"))
+        print("string %-26s %s" % (needle, ", ".join("0x%x" % a for a in locations) or "(absent)"))
         for address in locations:
-            addresses[address] = needle
+            name_by_address[address] = needle
 
-    if not addresses:
-        print("no needles found; nothing to scan")
+    if not name_by_address:
+        print("no needles found")
         return 1
 
     print()
-    print("# pointer candidates (a JNI entry is name pointer, signature pointer, fn pointer)")
-    hits = scan_for_pointers(data, segments, addresses)
-    if not hits:
-        print("no data word points at those strings")
-        return 1
-    for needle, where, offset in hits:
-        signature_ptr = struct.unpack_from("<Q", data, offset + 8)[0]
-        function_ptr = struct.unpack_from("<Q", data, offset + 16)[0]
-        signature = read_cstring(data, segments, signature_ptr)
-        print("name=%-16s entry=0x%x sig_ptr=0x%x sig=%s fn=0x%x"
-              % (needle, where, signature_ptr, signature if signature else "?", function_ptr))
-        print("  fn file offset = 0x%x" % (function_ptr - segment_base_for(segments, function_ptr)))
-    return 0
-
-
-def segment_base_for(segments, vaddr):
+    print("# pointer scan (resolving R_AARCH64_RELATIVE)")
+    entries = 0
     for seg_vaddr, seg_size, seg_offset in segments:
-        if seg_vaddr <= vaddr < seg_vaddr + seg_size:
-            return seg_vaddr - seg_offset
-    return 0
+        # Candidate table slots are 8-byte aligned words inside the segment.
+        start = seg_vaddr
+        end = seg_vaddr + seg_size - 8
+        for address in range(start, end, 8):
+            word = word_at(data, segments, sections, address, addends)
+            if word in name_by_address:
+                signature_ptr = word_at(data, segments, sections, address + 8, addends)
+                function_ptr = word_at(data, segments, sections, address + 16, addends)
+                signature = read_cstring(data, segments, signature_ptr) or "?"
+                entries += 1
+                print(
+                    "entry=0x%-10x name=%-26s sig=%-38s fn=0x%x"
+                    % (address, name_by_address[word], signature, function_ptr)
+                )
+    print("# entries found: %d" % entries)
+    return 0 if entries else 1
 
 
 if __name__ == "__main__":

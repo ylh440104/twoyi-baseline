@@ -43,8 +43,9 @@ jobs:
           set -euo pipefail
           out="$RUNNER_TEMP/jni-entries.txt"
           python3 tools/ghidra/find_jni_table.py "$RUNNER_TEMP/libs/libtwoyi.so" \
-            nativeResolve nativeHandle native-fence nativePrepare nativeAttachWindow \
-            nativeConfigureEndpoints nativeHandleTouch nativeSendKeycode \
+            nativeResolve nativeHandle native-fence nativePrepare nativeStop \
+            nativeWaitForExit nativeAttachWindow nativeConfigureEndpoints \
+            nativeHandleTouch nativeSendKeycode nativeResetWindow nativeRemoveWindow \
             > "$out" 2>&1 || true
           cat "$out"
       - name: Disassemble the recovered functions
