@@ -139,6 +139,18 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段三轮（续二）：设置页与记忆页（构建通过）
+
+- 新增两个界面，文案取自最新版同名键（中英各 57 条新增，资源总数 187 / 184）：
+  - **设置页**：按最新版分组（Twin / 孪生手机 / 本机 / 帮助），模型状态、三个开关
+    （查看屏幕、敏感输入保护、风险操作前询问）、记忆入口、手机模式与「未创建/未开机」的条件提示；
+  - **记忆页**：列出本地记忆、单条删除、全部清除（带二次确认文案）、底部说明。
+- `TwinRuntime` 增加偏好读写：`isFlag/setFlag`、`memories/remember/forget/forgetAll`，
+  键名常量 `FLAG_SEE_SCREEN`/`FLAG_SENSITIVE_GUARD`/`FLAG_CONFIRM_RISKY`。
+- CI：45919875872 构建通过。首次构建（45919195413）因资源里的裸撇号被 aapt2 拒绝
+  （`Invalid unicode escape sequence`），改为 `\'` 转义后通过。
+- 边界：开关只落本地偏好、尚未影响任何运行时行为；记忆只存在本地，未参与对话。
+
 ## 阶段三轮（续）：Phone 页可以真正打开来宾（构建通过）
 
 - `TwinRuntime.startPhone()`：`GuestInstanceGate.requireStartable` 先挡（`UNKNOWN_INSTANCE`/`NO_ROM` 直接返回原因）
