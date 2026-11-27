@@ -139,6 +139,21 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段二十八：体检结论落盘并进入诊断包（host 用例 + 构建通过）
+
+- 新增 `GuestPreflightNote.java`（纯 Java，`android.` 与 `R.string` 计数均为 0）：把体检结论写进
+  `cacheDir/preflight.txt`，一行一条且**稳定可 grep**：`时间 判定 路径 详情`；
+  - 换行/制表/控制字符被压成 `_`，保证「一行一条」的格式不被破坏；
+  - 最多保留 **12 行**，写入走 `.tmp` + rename，崩溃不会留半截文件，也不会残留临时文件。
+- `TwinRuntime.startPhone()` 在激活实例前记录判定（`OK` 也记），这样**启动失败**至少留下原因；
+  `LogEvents.getBugreport()` 把这个文件加入诊断包，点「发送日志」就能带走。
+- `tools/GuestPreflightNoteTest.java`：格式、清洗、12 行上限（写 24 条后确认最旧被丢、最新在末行）、
+  `.tmp` 不残留、嵌套目录自动创建、拒绝空目标/空行，并断言源码里**没有任何 Android 依赖**。
+- CI：host 回归 45938735603 全绿（boot-state 共 **20 条 PASS**），其中
+  `PASS: guest preflight record is one line, bounded and crash safe`；
+  Android 构建 45938735628 通过。首次失败（45938194224）是测试里 `expectThrows(Runnable…)`
+  吞不掉 `IOException`，改成自定义 `IOAction` 后通过。
+
 ## 阶段二十七：Android 侧的来宾镜像体检（host 用例 + 构建通过）
 
 - 新增 `GuestRomPreflight.java`（**纯 Java，无任何 Android 类型**）：读来宾 `rootfs/init`
