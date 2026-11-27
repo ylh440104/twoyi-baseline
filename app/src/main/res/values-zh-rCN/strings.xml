@@ -195,4 +195,10 @@
     <string name="twin_api_key_required">请输入 API Key</string>
     <string name="twin_api_key_bad_chars">API Key 含有无效字符。请检查是否有中文、全角字符或换行。</string>
     <string name="twin_base_url_invalid">请输入以 http:// 或 https:// 开头的有效 API 地址</string>
+    <string name="twin_http_error">服务返回错误（HTTP %1$d）</string>
+    <string name="twin_key_invalid">API Key 无效或没有权限</string>
+    <string name="twin_model_not_found">找不到模型「%1$s」，请检查模型名称</string>
+    <string name="twin_network_error">无法连接。请检查网络或 API 地址。</string>
+    <string name="twin_parse_error">无法解析模型返回内容，请稍后再试。</string>
+    <string name="twin_provider_fetching_models">正在获取模型列表…</string>
 </resources>

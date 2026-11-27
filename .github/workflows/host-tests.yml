@@ -39,6 +39,7 @@ jobs:
             app/src/main/java/io/twoyi/GuestStartupSlot.java \
             app/src/main/java/io/twoyi/ControlSocketRetry.java \
             app/src/main/java/io/twoyi/TwinProviderRules.java \
+            app/src/main/java/io/twoyi/TwinModelCatalog.java \
             app/src/main/java/io/twoyi/HalConnectionRegistry.java \
             app/src/main/java/io/twoyi/WindowOwner.java \
             app/src/main/java/io/twoyi/utils/RomInstallTransaction.java \
@@ -157,6 +158,13 @@ jobs:
           java -cp "$RUNNER_TEMP/service-slot-tests" io.twoyi.GuestServiceSlotTest
       - name: Guard guest paths against data-directory derivation
         run: python3 tools/check_slot_paths.py
+      - name: Verify model catalog reading
+        run: |
+          mkdir -p "$RUNNER_TEMP/model-catalog"
+          javac -d "$RUNNER_TEMP/model-catalog" \
+            app/src/main/java/io/twoyi/TwinModelCatalog.java \
+            tools/TwinModelCatalogTest.java
+          java -cp "$RUNNER_TEMP/model-catalog" io.twoyi.TwinModelCatalogTest
       - name: Verify provider form rules
         run: |
           mkdir -p "$RUNNER_TEMP/provider-rules"

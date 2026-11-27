@@ -197,4 +197,10 @@
     <string name="twin_api_key_required">Enter an API key</string>
     <string name="twin_api_key_bad_chars">The API key contains invalid characters. Check for non-English or full-width characters, or line breaks</string>
     <string name="twin_base_url_invalid">Enter a valid API URL starting with http:// or https://</string>
+    <string name="twin_http_error">The service returned an error (HTTP %1$d)</string>
+    <string name="twin_key_invalid">The API key is invalid or lacks permission</string>
+    <string name="twin_model_not_found">Model “%1$s” was not found. Check the model name</string>
+    <string name="twin_network_error">Cannot connect. Check your network or API URL.</string>
+    <string name="twin_parse_error">Could not read the model response. Please try again later.</string>
+    <string name="twin_provider_fetching_models">Fetching models...</string>
 </resources>

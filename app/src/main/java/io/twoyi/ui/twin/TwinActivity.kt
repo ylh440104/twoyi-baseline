@@ -509,6 +509,8 @@ private fun ProviderScreen(state: TwinState) {
     var apiKey by remember { mutableStateOf("") }
     var model by remember { mutableStateOf("") }
     var problems by remember { mutableStateOf(listOf<Int>()) }
+    var models by remember { mutableStateOf(listOf<String>()) }
+    var fetching by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -530,8 +532,58 @@ private fun ProviderScreen(state: TwinState) {
                 color = MaterialTheme.colorScheme.error
             )
         }
+        models.forEach { candidate ->
+            OutlinedButton(
+                onClick = { model = candidate },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = if (candidate == model) "\u2713 $candidate" else candidate,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = {}) { Text(stringResource(R.string.twin_provider_fetch_models)) }
+            OutlinedButton(
+                enabled = !fetching,
+                onClick = {
+                    val keyProblem = TwinProviderRules.checkKey(apiKey)
+                    val urlProblem = TwinProviderRules.checkBaseUrl(baseUrl)
+                    if (keyProblem != TwinProviderRules.KeyProblem.NONE || urlProblem != TwinProviderRules.UrlProblem.NONE) {
+                        val found = mutableListOf<Int>()
+                        if (keyProblem == TwinProviderRules.KeyProblem.REQUIRED) {
+                            found.add(R.string.twin_api_key_required)
+                        }
+                        if (keyProblem == TwinProviderRules.KeyProblem.BAD_CHARS) {
+                            found.add(R.string.twin_api_key_bad_chars)
+                        }
+                        if (urlProblem == TwinProviderRules.UrlProblem.NOT_HTTP ||
+                            urlProblem == TwinProviderRules.UrlProblem.MALFORMED
+                        ) {
+                            found.add(R.string.twin_base_url_invalid)
+                        }
+                        problems = found
+                    } else {
+                        fetching = true
+                        problems = emptyList()
+                        Thread {
+                            val result = TwinModelService.fetch(context, baseUrl, apiKey)
+                            fetching = false
+                            when (result) {
+                                is TwinModelService.Result.Ok -> models = result.models
+                                is TwinModelService.Result.Failed -> problems = listOf(result.messageRes)
+                            }
+                        }.start()
+                    }
+                }
+            ) {
+                Text(
+                    stringResource(
+                        if (fetching) R.string.twin_provider_fetching_models
+                        else R.string.twin_provider_fetch_models
+                    )
+                )
+            }
             Button(
                 onClick = {
                     val found = mutableListOf<Int>()
