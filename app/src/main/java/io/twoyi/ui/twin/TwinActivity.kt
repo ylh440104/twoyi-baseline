@@ -79,7 +79,7 @@ private enum class Screen { Boot, Main, Provider, Settings, Memory }
 private sealed class Line {
     class User(val text: String) : Line()
     class Twin(val text: String) : Line()
-    class Need(val question: String, val consequence: Int?) : Line() {
+    class Need(val template: Int, val arg: String, val consequence: Int?) : Line() {
         var resolved by mutableStateOf(false)
         var outcome by mutableStateOf<Int?>(null)
     }
@@ -317,7 +317,10 @@ private fun NeedCard(line: Line.Need) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(line.question, style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    text = stringResource(line.template, line.arg),
+                    style = MaterialTheme.typography.bodyMedium
+                )
                 line.consequence?.let { consequence ->
                     Text(
                         text = stringResource(consequence),
@@ -405,7 +408,8 @@ private fun Composer(state: TwinState) {
                     // shell only demonstrates the confirmation interaction end to end.
                     state.messages.add(
                         Line.Need(
-                            question = stringResource(R.string.twin_need_tap_question, text),
+                            template = R.string.twin_need_tap_question,
+                            arg = text,
                             consequence = consequence
                         )
                     )
