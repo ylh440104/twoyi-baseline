@@ -29,6 +29,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -41,6 +42,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import io.twoyi.R
 import io.twoyi.TwinProviderRules
 import io.twoyi.TwinTaskState
@@ -100,6 +102,7 @@ private class TwinState(
     var model by mutableStateOf(modelConnected)
     var draft by mutableStateOf("")
     var task by mutableStateOf(TwinTaskState.Phase.IDLE)
+    var guest by mutableStateOf(TwinRuntime.guestPhase())
     val messages = mutableStateListOf<Line>()
 }
 
@@ -202,6 +205,15 @@ private fun BootStep(
 
 @Composable
 private fun MainScreen(state: TwinState) {
+    // The guest phase lives in the process, not in this state object, so it has to be
+    // re-read; a second-long poll is enough for a status line and costs nothing.
+    LaunchedEffect(Unit) {
+        while (true) {
+            state.guest = TwinRuntime.guestPhase()
+            state.phoneCreated = state.phoneCreated || state.guest != TwinRuntime.GuestPhase.STOPPED
+            delay(1_000L)
+        }
+    }
     Column(modifier = Modifier.fillMaxSize()) {
         Box(
             modifier = Modifier
@@ -561,14 +573,32 @@ private fun PhoneSurface(state: TwinState) {
             }
         } else {
             SectionTitle(stringResource(R.string.twin_agent_name))
+            val running = state.guest == TwinRuntime.GuestPhase.RUNNING
+            val starting = state.guest == TwinRuntime.GuestPhase.STARTING
             Button(
-                enabled = state.phoneReady && !state.busy,
+                enabled = (state.phoneReady || running || starting) && !state.busy,
                 onClick = {
-                    state.error = TwinRuntime.startPhone(context)
+                    state.error = if (running || starting) {
+                        TwinRuntime.reopenPhone(context)
+                    } else {
+                        TwinRuntime.startPhone(context)
+                    }
                 }
             ) { Text(stringResource(R.string.twin_phone_fullscreen)) }
-            if (!state.phoneReady) {
-                Text(
+            when {
+                starting -> Text(
+                    text = stringResource(R.string.twin_boot_starting),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                running -> Text(
+                    text = stringResource(R.string.twin_status_running),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                state.guest == TwinRuntime.GuestPhase.FAILED -> Text(
+                    text = stringResource(R.string.twin_boot_failed),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                !state.phoneReady -> Text(
                     text = stringResource(R.string.twin_boot_preparing),
                     style = MaterialTheme.typography.bodyMedium
                 )
@@ -742,7 +772,17 @@ private fun SettingsScreen(state: TwinState) {
             Text(stringResource(R.string.twin_settings_memory))
         }
         GroupHeader(R.string.twin_settings_group_phone)
-        InfoRow(R.string.twin_settings_phone_mode, stringResource(R.string.twin_settings_phone_twin))
+        InfoRow(
+            R.string.twin_settings_phone_mode,
+            stringResource(
+                when (state.guest) {
+                    TwinRuntime.GuestPhase.RUNNING -> R.string.twin_status_running
+                    TwinRuntime.GuestPhase.STARTING -> R.string.twin_boot_starting
+                    TwinRuntime.GuestPhase.FAILED -> R.string.twin_boot_failed
+                    TwinRuntime.GuestPhase.STOPPED -> R.string.twin_settings_phone_twin
+                }
+            )
+        )
         if (!state.phoneCreated) {
             HintRow(R.string.twin_settings_needs_phone)
         } else if (!state.phoneReady) {

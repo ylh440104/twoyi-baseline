@@ -110,6 +110,9 @@ dependencies {
     implementation 'androidx.compose.material3:material3:1.0.0-alpha11'
     implementation 'androidx.activity:activity-compose:1.4.0'
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.4.1'
+    // delay() in the status poll; compose already pulls coroutines in transitively,
+    // but depending on it directly keeps the import intentional.
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.0'
     implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.4.1'
 //    implementation "com.github.seven332.a7zip:extract:master-SNAPSHOT"
 //    implementation 'com.github.omicronapps:7-Zip-JBinding-4Android:Release-16.02-2.02'

@@ -8,6 +8,7 @@ import io.twoyi.GuestInstanceInstaller
 import io.twoyi.GuestInstanceManager
 import io.twoyi.GuestInstanceRegistry
 import io.twoyi.Render2Activity
+import io.twoyi.TwoyiStatusManager
 import java.io.File
 
 /**
@@ -113,6 +114,36 @@ object TwinRuntime {
         return try {
             registry.activate(id)
             registry.save()
+            app.startActivity(
+                Intent(app, Render2Activity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            )
+            null
+        } catch (failure: Exception) {
+            failure.message ?: failure.javaClass.simpleName
+        }
+    }
+
+    /** What the guest process reports right now. */
+    enum class GuestPhase { STOPPED, STARTING, RUNNING, FAILED }
+
+    fun guestPhase(): GuestPhase = when (TwoyiStatusManager.getInstance().phase()) {
+        TwoyiStatusManager.Phase.STOPPED -> GuestPhase.STOPPED
+        TwoyiStatusManager.Phase.STARTING -> GuestPhase.STARTING
+        TwoyiStatusManager.Phase.RUNNING -> GuestPhase.RUNNING
+        TwoyiStatusManager.Phase.FAILED -> GuestPhase.FAILED
+    }
+
+    /**
+     * Open the guest window again without restarting it.
+     *
+     * Once the phone is running, "use phone" must not go through the start gate:
+     * that path would refuse (or restart) a live guest. The newest build reuses
+     * the running session the same way.
+     */
+    fun reopenPhone(context: Context): String? {
+        val app = context.applicationContext
+        return try {
             app.startActivity(
                 Intent(app, Render2Activity::class.java)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
