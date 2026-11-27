@@ -1,0 +1,75 @@
+name: Target strings for the resolver and gfxstream endpoints
+
+# Two open questions need nothing more than a wider string search:
+#   * the JNI entry that implements `nativeResolve` (the name may be obfuscated,
+#     since `nativeResolve` itself is absent from .rodata), and
+#   * the file names under `rootfs/gfxstream-vulkan`, which no path string found
+#     so far explains.
+# This job dumps every string a handful of patterns match, and nothing else.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/strings-focus.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  strings:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Download and verify the APK
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/twoyi.apk" \
+            https://dl.twoyi.ai/twoyi_0.7.5-11131322.apk
+          echo "86ed3afaa447104f131d906c42ed8a07e207959c7869fda54bd245f62db14f4e  $RUNNER_TEMP/twoyi.apk" \
+            | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/libs"
+          unzip -o -j "$RUNNER_TEMP/twoyi.apk" 'lib/arm64-v8a/libtwoyi.so' -d "$RUNNER_TEMP/libs" >/dev/null
+          unzip -o -j "$RUNNER_TEMP/twoyi.apk" 'lib/arm64-v8a/libloader.so' -d "$RUNNER_TEMP/libs" >/dev/null
+      - name: Dump targeted strings
+        run: |
+          set -euo pipefail
+          so="$RUNNER_TEMP/libs/libtwoyi.so"
+          out="$RUNNER_TEMP/targeted-strings.txt"
+          {
+            echo '# total strings'
+            strings -n 4 "$so" | wc -l
+            echo
+            echo '# anything mentioning resolve (case insensitive)'
+            strings -n 4 "$so" | grep -i 'resolve' | sort -u | head -80 || true
+            echo
+            echo '# native* identifiers'
+            strings -n 4 "$so" | grep -E '^native[A-Za-z0-9_]+$' | sort -u | head -120 || true
+            echo
+            echo '# strings that look like a path format'
+            strings -n 4 "$so" | grep -E '%s/[A-Za-z0-9_.-]+|/[A-Za-z0-9_.-]+\.(sock|pipe|lock|json|ini)$' \
+              | sort -u | head -120 || true
+            echo
+            echo '# socket and pipe names'
+            strings -n 3 "$so" | grep -E '^[a-z_][a-z0-9_]{2,30}$' \
+              | grep -E 'sock|pipe|gfx|hal|render|stream|vulkan|shm|mem' | sort -u | head -120 || true
+            echo
+            echo '# gfxstream-specific strings mentioning a directory or a file'
+            strings -n 4 "$so" | grep -i 'gfxstream' | grep -E '/|%|\.' | sort -u | head -80 || true
+            echo
+            echo '# loader strings mentioning resolve or endpoint'
+            strings -n 4 "$RUNNER_TEMP/libs/libloader.so" \
+              | grep -iE 'resolve|endpoint|broker|notify' | sort -u | head -60 || true
+          } > "$out"
+          wc -l "$out"
+          head -60 "$out"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: targeted-strings
+          if-no-files-found: warn
+          retention-days: 7
+          path: ${{ runner.temp }}/targeted-strings.txt
