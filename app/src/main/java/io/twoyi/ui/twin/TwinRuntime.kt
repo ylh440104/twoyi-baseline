@@ -4,6 +4,7 @@ package io.twoyi.ui.twin
 import android.content.Context
 import android.content.Intent
 import io.twoyi.GuestInstanceGate
+import io.twoyi.GuestPreflightNote
 import io.twoyi.GuestRomPreflight
 import io.twoyi.GuestSlotLayout
 import io.twoyi.GuestInstanceInstaller
@@ -118,6 +119,20 @@ object TwinRuntime {
             File(GuestSlotLayout.baseDirectory(dataDir, registry.slotOf(id)), "rootfs/init"),
             isArm64Build()
         )
+        // Record the verdict next to the diagnostics: a boot that fails before any
+        // window exists otherwise leaves nothing to attach to a report.
+        runCatching {
+            GuestPreflightNote.record(
+                java.io.File(app.cacheDir, "preflight.txt"),
+                GuestPreflightNote.format(
+                    java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ", java.util.Locale.US)
+                        .format(java.util.Date()),
+                    verdict.name,
+                    "rootfs/init",
+                    null
+                )
+            )
+        }
         if (verdict != GuestRomPreflight.Verdict.OK) {
             return app.getString(
                 when (verdict) {

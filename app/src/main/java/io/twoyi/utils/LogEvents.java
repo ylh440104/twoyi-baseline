@@ -165,6 +165,12 @@ public class LogEvents {
         File lastKmsgFile = getLastKmsgFile(context);
         reportItems.add(ReportItem.create(lastKmsgFile));
 
+        // what the guest image check concluded before the boot attempt
+        File preflightFile = new File(context.getCacheDir(), "preflight.txt");
+        if (preflightFile.isFile()) {
+            reportItems.add(ReportItem.create(preflightFile));
+        }
+
         // logcat
         File logcatFile = getLogcatFile(context);
         if (captureReport(logcatFile, "logcat", "-d", "-t", "2000")) {

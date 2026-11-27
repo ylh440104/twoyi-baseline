@@ -43,6 +43,7 @@ jobs:
             app/src/main/java/io/twoyi/TwinSecretFormat.java \
             app/src/main/java/io/twoyi/TwinTaskState.java \
             app/src/main/java/io/twoyi/GuestRomPreflight.java \
+            app/src/main/java/io/twoyi/GuestPreflightNote.java \
             app/src/main/java/io/twoyi/HalConnectionRegistry.java \
             app/src/main/java/io/twoyi/WindowOwner.java \
             app/src/main/java/io/twoyi/utils/RomInstallTransaction.java \
@@ -161,6 +162,13 @@ jobs:
           java -cp "$RUNNER_TEMP/service-slot-tests" io.twoyi.GuestServiceSlotTest
       - name: Guard guest paths against data-directory derivation
         run: python3 tools/check_slot_paths.py
+      - name: Verify guest preflight record
+        run: |
+          mkdir -p "$RUNNER_TEMP/preflight-note"
+          javac -d "$RUNNER_TEMP/preflight-note" \
+            app/src/main/java/io/twoyi/GuestPreflightNote.java \
+            tools/GuestPreflightNoteTest.java
+          java -cp "$RUNNER_TEMP/preflight-note" io.twoyi.GuestPreflightNoteTest
       - name: Verify guest init preflight
         run: |
           mkdir -p "$RUNNER_TEMP/rom-preflight"
