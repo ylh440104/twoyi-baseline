@@ -64,6 +64,42 @@ jobs:
             grep -q 'NotAarch64' "$RUNNER_TEMP/plan.txt" || {
               echo "::error::the planner failed for an unexpected reason"; exit 1; }
           fi
+      - name: Plan a real aarch64 binary
+        run: |
+          set -euo pipefail
+          # A tiny freestanding guest image, so the planner is exercised on a real
+          # AArch64 ELF (PT_LOAD segments, an executable entry) rather than only on
+          # the synthetic bytes built inside the unit tests.
+          sudo apt-get update -q
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          work="$RUNNER_TEMP/aarch64"
+          mkdir -p "$work"
+          cat > "$work/guest.c" <<'EOF'
+          void _start(void) {
+              volatile unsigned long counter = 0;
+              for (;;) {
+                  counter++;
+              }
+          }
+          EOF
+          aarch64-linux-gnu-gcc -nostdlib -static -O1 -o "$work/guest" "$work/guest.c"
+          file "$work/guest"
+          aarch64-linux-gnu-readelf -h "$work/guest" | grep -E 'Class|Machine|Entry'
+          aarch64-linux-gnu-readelf -l "$work/guest" | grep -E 'LOAD|0x0000' | head -8
+
+          cargo run --manifest-path tools/miniloader/Cargo.toml --bin miniloader-plan -- \
+            "$work/guest" 4096 | tee "$RUNNER_TEMP/plan-aarch64.txt"
+
+          grep -q 'entry: 0x' "$RUNNER_TEMP/plan-aarch64.txt"
+          grep -q 'entry executable: true' "$RUNNER_TEMP/plan-aarch64.txt"
+          grep -q 'seg\[0\]' "$RUNNER_TEMP/plan-aarch64.txt"
+          grep -q 'reserve: 0x' "$RUNNER_TEMP/plan-aarch64.txt"
+          grep -q 'map 0x' "$RUNNER_TEMP/plan-aarch64.txt"
+          grep -q 'initial stack: ' "$RUNNER_TEMP/plan-aarch64.txt"
+          # The executable mapping must carry PROT_EXEC (bit 4) plus PROT_READ (bit 1).
+          awk '/^map /{ if ($0 ~ /prot=5/ || $0 ~ /prot=7/) found=1 } END{ exit found ? 0 : 1 }' \
+            "$RUNNER_TEMP/plan-aarch64.txt"
+          echo "planner handled a real aarch64 ELF"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -72,4 +108,5 @@ jobs:
           retention-days: 7
           path: |
             ${{ runner.temp }}/plan.txt
+            ${{ runner.temp }}/plan-aarch64.txt
             ${{ runner.temp }}/rustfmt.diff
