@@ -139,6 +139,27 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段三十五：在真机（Termux = bionic aarch64）上验证，并跑通真实来宾 init
+
+- 用户指出 Termux 本身就是 Android + bionic + aarch64，于是本机装了 Rust 1.100，
+  **在目标环境**跑测试与诊断（比 Linux CI 更接近真实）。
+- `cargo test` 在 bionic 上 **71 项全过**。关键修正：`transport`/`session` 原来写的是
+  `cfg(target_os = "linux")`，在 Android 上被整组跳过——也就是 `socketpair`+`SCM_RIGHTS`
+  从未在 bionic 上验证过。改成 `cfg(unix)` 后全部通过，**证明 fd 传递在 Android 上可用**。
+- 真实二进制实测（本机输出）：
+  - `/system/bin/toybox`：4 段、313 导入、294 可提供；缺 19 个（`gz*`/SELinux/`__android_log_write`）
+  - `/system/bin/linker64`：**loadable**（4 段、0 重定位、0 导入）
+  - `/system/lib64/libc.so`：1575 条 `R_AARCH64_RELATIVE`、507 导入全可提供
+  - **真实来宾 `rootfs/init`**（从本机已安装的 APK 里取出）：**loadable**，2 段、0 重定位、
+    **0 导入（静态链接）**；映射后入口字节 `e0 03 00 91`（`add x0, sp, #0`）
+- 本机编译顺带抓出三个 CI 没暴露的错：`phnum` 是 `usize` 而字段要 `u16`（**编译失败**）、
+  测试里 `AT_NULL` 位置算错、断言 `AT_BASE` 时把 kind 当 value。
+- 新增能力：`stack::auxv_for()` 生成 `AT_PAGESZ/AT_PHDR/AT_PHENT/AT_PHNUM/AT_ENTRY/AT_BASE`，
+  `Elf` 现在算出程序头表的虚拟地址（找不到就 `None`，不猜）。
+- **新暴露的缺口**：`toybox` 那 19 个缺失说明我们**没有实现 `DT_NEEDED` 依赖库加载**；
+  真实链接器会先加载 `libz/libselinux/liblog` 再解析符号，我们只在当前进程 `dlsym`。
+  对静态的来宾 `init` 无影响，但对任何动态链接的来宾都会误判 blocked。
+
 ## 阶段三十四：一键设备取证脚本
 
 - 新增 `tools/device_probe.sh`：一条命令把验证需要的信息全部收集到一个文件，避免来回问答。

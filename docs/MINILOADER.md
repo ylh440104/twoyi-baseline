@@ -68,3 +68,31 @@
 1. 把 `MappingPlan` 接到真正的 `mmap`（Android 侧，`app/rs` 或独立二进制）。
 2. 把通道换成官方用的 `socketpair` + `SCM_RIGHTS` 传 fd（现在已按消息边界在 UNIX 流上跑通），并在设备上验证。
 3. 设计宿主 libc bridge 的最小符号集（`android_set_application_target_sdk_version`、`__android_log_*` 等已知被取用的符号）。
+## 真机实测（Termux = Android bionic aarch64，2026-11-27）
+
+Termux 本身就是 Android + bionic + aarch64，装了 Rust 1.100 后可在**目标环境**跑测试与诊断，
+这比 Linux CI 更接近真实。以下都是本机实际输出。
+
+### 单元测试
+
+`cargo test` 在 bionic 上 **71 项全过**；其中 `transport`/`session` 原本被 `cfg(target_os = "linux")`
+排除，改成 `cfg(unix)` 后才在 Android 上跑起来——也就是说 **`socketpair` + `SCM_RIGHTS` 传 fd
+在 bionic 上确实可用**，接收端能 `pread` 出原文件内容。
+
+### 真实系统二进制
+
+| 目标 | 结论 |
+|---|---|
+| `/system/bin/toybox` | 4 段、313 个导入、**294 个本机可提供**；缺的 19 个是 `gz*`(zlib)、SELinux 与 `__android_log_write`——它们在**独立的 libz/libselinux/liblog** 里，不是 libc |
+| `/system/bin/linker64` | **loadable**：4 段、0 重定位、0 导入 |
+| `/system/lib64/libc.so` | 1575 条 `R_AARCH64_RELATIVE`、507 导入（本机全可提供）；被判 blocked 只因为共享库的 `entry=0` 不在可执行段 |
+| **真实来宾 `rootfs/init`** | **loadable**：2 段、0 重定位、**0 导入（静态链接）**；映射后入口字节 `e0 03 00 91`（AArch64 `add x0, sp, #0`） |
+
+来宾 `init` 的 ELF 头是 `7f 45 4c 46 02 01 01 … 02 00 b7 00`，即 ELF64 小端、`e_machine=0xB7`(aarch64)。
+
+### 由此新增的一个已知缺口
+
+`toybox` 那 19 个「缺失」暴露了一个真问题：**我们没有实现 `DT_NEEDED` 依赖库加载**。
+真实动态链接器会先加载 `libz.so`/`libselinux.so`/`liblog.so` 再解析符号；我们目前只在**当前进程**
+里 `dlsym`。对来宾 `init` 没影响（它是静态的），但任何动态链接的来宾二进制都会因此被判 blocked。
+
