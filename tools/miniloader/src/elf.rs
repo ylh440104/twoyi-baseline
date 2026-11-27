@@ -108,7 +108,8 @@ impl<'a> Elf<'a> {
         let entry = read_u64(data, 0x18).ok_or(ElfError::Truncated)?;
         let phoff = read_u64(data, 0x20).ok_or(ElfError::Truncated)? as usize;
         let phentsize = read_u16(data, 0x36).ok_or(ElfError::Truncated)?;
-        let phnum = read_u16(data, 0x38).ok_or(ElfError::Truncated)? as usize;
+        let phnum_raw = read_u16(data, 0x38).ok_or(ElfError::Truncated)?;
+        let phnum = phnum_raw as usize;
         if phentsize != PHENT_SIZE {
             return Err(ElfError::BadPhentsize(phentsize));
         }
@@ -173,7 +174,7 @@ impl<'a> Elf<'a> {
             data,
             phdr_vaddr,
             phdr_entry_size: phentsize,
-            phdr_count: phnum,
+            phdr_count: phnum_raw,
         })
     }
 

@@ -6,7 +6,7 @@
 //! session works when the broker has to hand the guest a live descriptor. Each side
 //! owns one endpoint, so the broker runs in a thread and the loader stays here.
 
-#![cfg(target_os = "linux")]
+#![cfg(unix)]
 
 use std::fs::File;
 use std::io::Write;

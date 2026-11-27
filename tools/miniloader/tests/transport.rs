@@ -6,7 +6,7 @@
 //! is that a real fd travels with each reply, exactly as the official loader's
 //! `SCM_RIGHTS` copy does.
 
-#![cfg(target_os = "linux")]
+#![cfg(unix)]
 
 use std::fs::File;
 use std::io::Write;

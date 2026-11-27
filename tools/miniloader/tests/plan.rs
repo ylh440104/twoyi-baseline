@@ -234,39 +234,73 @@ fn empty_argv_is_still_a_valid_image() {
     assert_eq!(image.slot(image.layout.argc_offset).unwrap(), 0);
     assert_eq!(image.size % 16, 0);
 }
+/// An ELF whose first PT_LOAD starts at file offset 0, so the program headers have a
+/// virtual address — which is how real images look, and what `AT_PHDR` needs.
+fn elf_with_mapped_headers(entry: u64) -> Vec<u8> {
+    let phnum = 1usize;
+    let phoff = 64usize;
+    let total = 0x400usize;
+    let mut out = vec![0u8; total];
+    out[0..4].copy_from_slice(b"\x7fELF");
+    out[4] = 2;
+    out[5] = 1;
+    out[6] = 1;
+    out[0x12..0x14].copy_from_slice(&0xb7u16.to_le_bytes());
+    out[0x18..0x20].copy_from_slice(&entry.to_le_bytes());
+    out[0x20..0x28].copy_from_slice(&(phoff as u64).to_le_bytes());
+    out[0x36..0x38].copy_from_slice(&0x38u16.to_le_bytes());
+    out[0x38..0x3a].copy_from_slice(&(phnum as u16).to_le_bytes());
+    out[phoff..phoff + 4].copy_from_slice(&1u32.to_le_bytes()); // PT_LOAD
+    out[phoff + 4..phoff + 8].copy_from_slice(&(PT_F_R | PT_F_X).to_le_bytes());
+    out[phoff + 8..phoff + 16].copy_from_slice(&0u64.to_le_bytes()); // file offset 0
+    out[phoff + 16..phoff + 24].copy_from_slice(&0x400000u64.to_le_bytes());
+    out[phoff + 32..phoff + 40].copy_from_slice(&(total as u64).to_le_bytes());
+    out[phoff + 40..phoff + 48].copy_from_slice(&(total as u64).to_le_bytes());
+    out[phoff + 48..phoff + 56].copy_from_slice(&PAGE.to_le_bytes());
+    out
+}
+
 #[test]
 fn the_guest_gets_the_auxv_its_linker_needs() {
     // A guest that expects a loader reads AT_PHDR/AT_PHENT/AT_PHNUM/AT_ENTRY to find
     // its own program headers; without them it cannot relocate itself.
-    let bytes = synth_elf(0x100, &[(0x100, 0x400000, 0x200, 0x400, PT_F_R | PT_F_X)]);
+    let bytes = elf_with_mapped_headers(0x400100);
     let image = Elf::parse(&bytes).expect("parse");
     assert_eq!(image.phdr_entry_size, 0x38);
     assert_eq!(image.phdr_count, 1);
     // The program headers sit inside the first segment, so they have a virtual address.
-    assert_eq!(image.phdr_vaddr, Some(0x400000), "phdr sits at the segment base");
+    assert_eq!(image.phdr_vaddr, Some(0x400040), "phdr sits 0x40 into the segment");
 
     let bias: i64 = 0x7f00_0000;
     let auxv = miniloader::stack::auxv_for(&image, bias, PAGE).expect("auxv");
     let find = |kind: u64| auxv.iter().find(|entry| entry.kind == kind).map(|entry| entry.value);
     assert_eq!(find(miniloader::stack::AT_PAGESZ), Some(PAGE));
-    assert_eq!(find(miniloader::stack::AT_PHDR), Some(0x7f00_0000 + 0x400000));
+    assert_eq!(find(miniloader::stack::AT_PHDR), Some(0x7f00_0000 + 0x400040));
     assert_eq!(find(miniloader::stack::AT_PHENT), Some(0x38));
     assert_eq!(find(miniloader::stack::AT_PHNUM), Some(1));
-    assert_eq!(find(miniloader::stack::AT_ENTRY), Some(0x7f00_0000 + 0x100));
+    assert_eq!(find(miniloader::stack::AT_ENTRY), Some(0x7f00_0000 + 0x400100));
     assert_eq!(find(miniloader::stack::AT_BASE), Some(0), "the loader is in this process");
 
     // The vector is accepted by the stack builder and terminated with AT_NULL.
-    let stack = build_stack(&["/init"], &[], &auxv, 1 << 20).expect("stack");
+    let stack = miniloader::build_stack(&["/init"], &[], &auxv, 1 << 20).expect("stack");
     let auxv_bytes = auxv.len() * 16;
-    let last = stack.layout.auxv_offset + auxv_bytes - 16;
-    assert_eq!(stack.slot(last).unwrap(), AT_NULL, "AT_NULL terminates the vector");
+    // The builder appends AT_NULL itself, right after the supplied entries.
+    let terminator = stack.layout.auxv_offset + auxv_bytes;
+    assert_eq!(stack.slot(terminator).unwrap(), AT_NULL, "AT_NULL terminates the vector");
+    // And the pair we supplied last is intact just before it: kind AT_BASE, value 0.
+    assert_eq!(
+        stack.slot(terminator - 16).unwrap(),
+        miniloader::stack::AT_BASE,
+        "the last supplied kind is AT_BASE"
+    );
+    assert_eq!(stack.slot(terminator - 8).unwrap(), 0, "AT_BASE carries no base");
     assert_eq!(stack.size % 16, 0);
 }
 
 #[test]
 fn a_negative_bias_still_produces_sane_auxv() {
     // Mapping below the link address is legal; the arithmetic must not wrap.
-    let bytes = synth_elf(0x100, &[(0x100, 0x400000, 0x200, 0x400, PT_F_R | PT_F_X)]);
+    let bytes = elf_with_mapped_headers(0x400100);
     let image = Elf::parse(&bytes).expect("parse");
     let auxv = miniloader::stack::auxv_for(&image, -0x1000, PAGE).expect("auxv");
     let entry = auxv
@@ -274,5 +308,22 @@ fn a_negative_bias_still_produces_sane_auxv() {
         .find(|candidate| candidate.kind == miniloader::stack::AT_ENTRY)
         .map(|candidate| candidate.value)
         .unwrap();
-    assert_eq!(entry, 0x100 - 0x1000, "the entry follows the bias, wrapping as the ABI does");
+    let expected = (0x400100i128 - 0x1000) as u64;
+    assert_eq!(entry, expected, "the entry follows the bias");
+    let phdr = auxv
+        .iter()
+        .find(|candidate| candidate.kind == miniloader::stack::AT_PHDR)
+        .map(|candidate| candidate.value)
+        .unwrap();
+    assert_eq!(phdr, (0x400040i128 - 0x1000) as u64);
+}
+
+#[test]
+fn an_image_without_mapped_headers_has_no_auxv() {
+    // The other fixtures put the headers outside the segment, as a stripped image can;
+    // then AT_PHDR cannot be produced and the loader must say so.
+    let bytes = synth_elf(0x100, &[(0x100, 0x400000, 0x200, 0x400, PT_F_R | PT_F_X)]);
+    let image = Elf::parse(&bytes).expect("parse");
+    assert_eq!(image.phdr_vaddr, None);
+    assert!(miniloader::stack::auxv_for(&image, 0, PAGE).is_none());
 }
