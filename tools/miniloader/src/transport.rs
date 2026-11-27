@@ -61,19 +61,18 @@ pub fn send_frame(fd: RawFd, payload: &[u8], attach: Option<RawFd>) -> io::Resul
         iov_len: payload.len(),
     };
     let mut control = vec![0u8; control_len(attach.is_some())];
-    let mut header = libc::msghdr {
-        msg_name: std::ptr::null_mut(),
-        msg_namelen: 0,
-        msg_iov: &mut iov,
-        msg_iovlen: 1,
-        msg_control: if attach.is_some() {
-            control.as_mut_ptr() as *mut libc::c_void
-        } else {
-            std::ptr::null_mut()
-        },
-        msg_controllen: if attach.is_some() { control.len() } else { 0 },
-        msg_flags: 0,
+    let mut header: libc::msghdr = unsafe { std::mem::zeroed() };
+    header.msg_name = std::ptr::null_mut();
+    header.msg_namelen = 0;
+    header.msg_iov = &mut iov;
+    header.msg_iovlen = 1;
+    header.msg_control = if attach.is_some() {
+        control.as_mut_ptr() as *mut libc::c_void
+    } else {
+        std::ptr::null_mut()
     };
+    header.msg_controllen = if attach.is_some() { control.len() } else { 0 };
+    header.msg_flags = 0;
 
     if let Some(descriptor) = attach {
         unsafe {
@@ -108,15 +107,14 @@ pub fn recv_frame(fd: RawFd, max_len: usize) -> io::Result<(Vec<u8>, Option<RawF
         iov_base: data.as_mut_ptr() as *mut libc::c_void,
         iov_len: data.len(),
     };
-    let mut header = libc::msghdr {
-        msg_name: std::ptr::null_mut(),
-        msg_namelen: 0,
-        msg_iov: &mut iov,
-        msg_iovlen: 1,
-        msg_control: control.as_mut_ptr() as *mut libc::c_void,
-        msg_controllen: control.len(),
-        msg_flags: 0,
-    };
+    let mut header: libc::msghdr = unsafe { std::mem::zeroed() };
+    header.msg_name = std::ptr::null_mut();
+    header.msg_namelen = 0;
+    header.msg_iov = &mut iov;
+    header.msg_iovlen = 1;
+    header.msg_control = control.as_mut_ptr() as *mut libc::c_void;
+    header.msg_controllen = control.len();
+    header.msg_flags = 0;
 
     let received = unsafe { libc::recvmsg(fd, &mut header, 0) };
     if received < 0 {
@@ -138,6 +136,11 @@ pub fn recv_frame(fd: RawFd, max_len: usize) -> io::Result<(Vec<u8>, Option<RawF
         }
     }
     Ok((data, attached))
+}
+
+/// Free-function form of [`SocketPair::dup_here`], for callers that only have an fd.
+pub fn dup_here(fd: RawFd) -> io::Result<RawFd> {
+    SocketPair::dup_here(fd)
 }
 
 /// Close a descriptor received from [`recv_frame`].
