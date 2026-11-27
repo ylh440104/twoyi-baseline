@@ -5,7 +5,9 @@ name: Build and test the loader core on ARM
 #   * `test` runs the whole suite natively on aarch64-linux — the mapping, relocation
 #     and descriptor code then executes on the architecture the guest uses;
 #   * `android` cross-builds for aarch64-linux-android with the NDK the app already
-#     pins, proving the crate also compiles against bionic.
+#     pins, proving the crate also compiles against bionic. This job stays on an x86_64
+#     runner because the NDK ships host tools for x86_64 only (r22 has no aarch64 host
+#     build), which is a limitation of the NDK, not of the code.
 #
 # Neither job deploys anything; the artifacts are the logs and the binary's identity.
 
@@ -82,7 +84,7 @@ jobs:
             ${{ runner.temp }}/native-plan.txt
 
   android:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -93,21 +95,16 @@ jobs:
           set -euo pipefail
           rustup toolchain install stable --profile minimal
           rustup default stable
-          # On an aarch64 host this is a native compile for the android target.
           rustup target add aarch64-linux-android
           rustc --version
       - name: Fetch the NDK
         run: |
           set -euo pipefail
-          ndk=android-ndk-r22b-linux
+          ndk=android-ndk-r22b-linux-x86_64
           curl --fail --location --retry 3 -o "$RUNNER_TEMP/ndk.zip" \
             "https://dl.google.com/android/repository/${ndk}.zip"
           unzip -q "$RUNNER_TEMP/ndk.zip" -d "$RUNNER_TEMP/ndk"
-          linker=$(find "$RUNNER_TEMP/ndk" -path '*toolchains/llvm/prebuilt/linux-aarch64/bin/aarch64-linux-android24-clang' | head -1)
-          if [ -z "$linker" ]; then
-            echo "the JDK-independent NDK layout differs; searching"
-            linker=$(find "$RUNNER_TEMP/ndk" -name 'aarch64-linux-android24-clang' | head -1)
-          fi
+          linker=$(find "$RUNNER_TEMP/ndk" -name 'aarch64-linux-android24-clang' | head -1)
           test -n "$linker"
           echo "NDK_LINKER=$linker" >> "$GITHUB_ENV"
           "$linker" --version | head -1
