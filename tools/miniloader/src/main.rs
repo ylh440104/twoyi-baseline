@@ -135,6 +135,27 @@ fn main() {
         );
     }
 
+    if std::env::args().any(|argument| argument == "--check") {
+        let mut table = SymbolTable::new();
+        let names: Vec<&str> = miniloader::KNOWN_REQUIRED.to_vec();
+        table.from_current_process(&names);
+        let verdict = miniloader::preflight::preflight(&parsed, &table, page_size);
+        println!("check: {}", if verdict.is_loadable() { "loadable" } else { "blocked" });
+        println!(
+            "check: segments={} reserved={} relocations={} imports={}",
+            verdict.segments,
+            verdict.reserved_bytes,
+            verdict.relative_relocations,
+            verdict.imports.len()
+        );
+        for blocker in &verdict.blockers {
+            println!("check blocker: {blocker}");
+        }
+        if !verdict.is_loadable() {
+            std::process::exit(3);
+        }
+    }
+
     if std::env::args().any(|argument| argument == "--map") {
         match miniloader::MappedImage::map(&parsed, page_size) {
             Ok(mapped) => {

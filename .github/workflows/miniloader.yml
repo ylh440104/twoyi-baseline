@@ -147,6 +147,27 @@ jobs:
             }
           done
           echo "bridge reported the aarch64 imports"
+
+          # The preflight verdict: the static binary must be loadable, the dynamic one
+          # must be blocked only if a strong import is missing (weak ones are fine).
+          cargo run --manifest-path tools/miniloader/Cargo.toml --bin miniloader-plan -- \
+            "$work/guest" 4096 --check | tee "$RUNNER_TEMP/check-static.txt"
+          grep -q 'check: loadable' "$RUNNER_TEMP/check-static.txt"
+
+          set +e
+          cargo run --manifest-path tools/miniloader/Cargo.toml --bin miniloader-plan -- \
+            "$work/dyn" 4096 --check > "$RUNNER_TEMP/check-dyn.txt" 2>&1
+          dyn_status=$?
+          set -e
+          cat "$RUNNER_TEMP/check-dyn.txt"
+          grep -qE 'check: (loadable|blocked)' "$RUNNER_TEMP/check-dyn.txt"
+          grep -q 'check: segments=' "$RUNNER_TEMP/check-dyn.txt"
+          if grep -q 'check: blocked' "$RUNNER_TEMP/check-dyn.txt"; then
+            grep -q 'check blocker:' "$RUNNER_TEMP/check-dyn.txt"
+            echo "preflight blocked the dynamic guest (status $dyn_status) with a reason"
+          else
+            echo "preflight reported the dynamic guest as loadable"
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -158,4 +179,6 @@ jobs:
             ${{ runner.temp }}/plan-aarch64.txt
             ${{ runner.temp }}/map-aarch64.txt
             ${{ runner.temp }}/imports-aarch64.txt
+            ${{ runner.temp }}/check-static.txt
+            ${{ runner.temp }}/check-dyn.txt
             ${{ runner.temp }}/rustfmt.diff
