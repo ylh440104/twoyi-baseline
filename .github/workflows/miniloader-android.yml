@@ -1,0 +1,135 @@
+name: Build and test the loader core on ARM
+
+# The loader only matters on ARM64, so this job runs on an ARM64 runner instead of
+# cross-compiling from x86:
+#   * `test` runs the whole suite natively on aarch64-linux — the mapping, relocation
+#     and descriptor code then executes on the architecture the guest uses;
+#   * `android` cross-builds for aarch64-linux-android with the NDK the app already
+#     pins, proving the crate also compiles against bionic.
+#
+# Neither job deploys anything; the artifacts are the logs and the binary's identity.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'tools/miniloader/**'
+      - '.github/workflows/miniloader-android.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Show the architecture
+        run: |
+          uname -m
+          nproc
+          getconf PAGESIZE
+      - name: Install a Rust toolchain
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          cargo --version
+      - name: Run the suite natively on aarch64
+        run: |
+          set -euo pipefail
+          cargo test --manifest-path tools/miniloader/Cargo.toml --verbose 2>&1 \
+            | tee "$RUNNER_TEMP/arm-test.log"
+      - name: Plan a real aarch64 guest natively
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/native"
+          mkdir -p "$work"
+          cat > "$work/guest.c" <<'EOF'
+          void _start(void) {
+              volatile unsigned long counter = 0;
+              for (;;) {
+                  counter++;
+              }
+          }
+          EOF
+          cc -nostdlib -static -O1 -o "$work/guest" "$work/guest.c"
+          file "$work/guest"
+          cargo run --manifest-path tools/miniloader/Cargo.toml --bin miniloader-plan -- \
+            "$work/guest" 4096 --map | tee "$RUNNER_TEMP/native-plan.txt"
+          grep -q 'entry: 0x' "$RUNNER_TEMP/native-plan.txt"
+          grep -q 'entry executable: true' "$RUNNER_TEMP/native-plan.txt"
+          grep -q 'mapped: entry=0x' "$RUNNER_TEMP/native-plan.txt"
+          grep -qE 'prot=(5|7)' "$RUNNER_TEMP/native-plan.txt"
+          grep -q 'entry bytes: ' "$RUNNER_TEMP/native-plan.txt"
+          if grep -q 'unreadable' "$RUNNER_TEMP/native-plan.txt"; then
+            echo "::error::the mapped entry could not be read back"
+            exit 1
+          fi
+          echo "mapped a native aarch64 image on an arm64 host"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: loader-arm-test
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/arm-test.log
+            ${{ runner.temp }}/native-plan.txt
+
+  android:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Install a Rust toolchain with the android target
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          # On an aarch64 host this is a native compile for the android target.
+          rustup target add aarch64-linux-android
+          rustc --version
+      - name: Fetch the NDK
+        run: |
+          set -euo pipefail
+          ndk=android-ndk-r22b-linux
+          curl --fail --location --retry 3 -o "$RUNNER_TEMP/ndk.zip" \
+            "https://dl.google.com/android/repository/${ndk}.zip"
+          unzip -q "$RUNNER_TEMP/ndk.zip" -d "$RUNNER_TEMP/ndk"
+          linker=$(find "$RUNNER_TEMP/ndk" -path '*toolchains/llvm/prebuilt/linux-aarch64/bin/aarch64-linux-android24-clang' | head -1)
+          if [ -z "$linker" ]; then
+            echo "the JDK-independent NDK layout differs; searching"
+            linker=$(find "$RUNNER_TEMP/ndk" -name 'aarch64-linux-android24-clang' | head -1)
+          fi
+          test -n "$linker"
+          echo "NDK_LINKER=$linker" >> "$GITHUB_ENV"
+          "$linker" --version | head -1
+      - name: Cross-build the core for aarch64-linux-android
+        run: |
+          set -euo pipefail
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_LINKER"
+          cargo build --manifest-path tools/miniloader/Cargo.toml \
+            --target aarch64-linux-android --release 2>&1 | tee "$RUNNER_TEMP/android-build.log"
+          object="tools/miniloader/target/aarch64-linux-android/release/miniloader-plan"
+          test -f "$object"
+          file "$object"
+          stat -c '%s bytes' "$object"
+          readelf -h "$object" | grep -E 'Class|Machine|Type'
+          readelf -d "$object" | grep NEEDED || true
+          file "$object" | grep -q 'ARM aarch64'
+          echo "cross build produced an aarch64 android binary"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: loader-android-cross-build
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/android-build.log
