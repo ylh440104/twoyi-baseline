@@ -139,6 +139,26 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段二十四：宿主符号桥（51 项单测）
+
+- 新增 `tools/miniloader/src/bridge.rs`：`SymbolTable` 是「名字 → 地址」的显式表，
+  - `insert()` 拒绝空名与 **0 地址**（把槽填成 0 只会让来宾跳到空指针，比加载失败更难查）；
+  - `missing(required)` / `require_all()` 给出缺哪些必需符号，错误文案与官方 loader 的
+    `required host libc bridge symbols are unavailable` 一致；
+  - `from_current_process(names)` 用 `dlsym(RTLD_DEFAULT, …)` 从**当前进程**取真实地址，缺失的名字
+    保持缺失而不是编造；
+  - `KNOWN_REQUIRED` 只列有直接证据的名字（`docs/LOADER_DECODE.md` 里解出的
+    `android_set_application_target_sdk_version`、`__android_log_print`、`dlopen/dlsym/…`）。
+- `MappedImage::map_with_bridge(elf, page, relocate, Some(&table))`：在**可写阶段**（重定位之后、
+  `mprotect` 收窄之前）按 `JUMP_SLOT` 打补丁；任何未解析的导入直接让**加载失败**并报出名字。
+- `tests/bridge.rs` 6 项：拒绝空名/0 地址、缺失清单与 `require_all`、从当前进程取到
+  `malloc/free/memcpy` 且不存在名字保持缺失、**映射后的槽真的持有桥给出的地址**、
+  未解析导入令加载失败、无桥时槽保持原样。
+- CI 运行 45932259675 全绿：**51 项**（bridge 6 + symbols 6 + reloc 7 + executor 4 + image 4 +
+  plan 8 + proto 6 + handshake 5 + resolver 5）；同批 host 回归 45932259730、Android 构建 45932259731 均通过。
+- 边界：桥只做**查表**，没有实现 bionic 语义（`__android_log_print` 等要宿主真正提供实现）；
+  也没有在设备上验证过任何一次真实解析。
+
 ## 阶段二十三：动态符号与跳转槽（45 项单测）
 
 - 新增 `tools/miniloader/src/symbols.rs`：
