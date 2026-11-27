@@ -139,6 +139,31 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段四十四：loader 接进 App（APK 构建通过并已发布）
+
+- `app/rs` 以 path 依赖引入 `miniloader`，新增 JNI `guestPreflight(String) -> String`，
+  注册在**独立的类** `io/twoyi/GuestLoaderCheck` 上（不是渲染器），App 无需窗口即可调用。
+- Java 侧 `GuestLoaderCheck`：静态加载 `twoyi` 库；`ask()` 返回
+  `LOADABLE|BLOCKED segments=N imports=N relocations=N [libraries=o/n unresolved=k]`；
+  原生侧不存在时返回 `null`。`TwinRuntime.startPhone()` **优先用 loader 的判定**，
+  拿不到才退回纯 Java 的 ELF 头检查——两边不会各说各话。
+- 判定结果照旧写进 `preflight.txt` 并进入诊断包。
+- 工程细节（都是 CI 抓出来的）：
+  1. `run.rs` 的内联汇编与 `user_regs_struct`/`ucontext` 字段在 x86_64 上不存在 →
+     按 `target_arch` 隔离，非 AArch64 上 `enter_guest` 直接 `_exit(124)`；
+  2. `app/rs` 用 Rust 1.60，而 `let-else` 需要 1.65 → 改回 `match`；
+  3. 引入 path 依赖会把 `libc` 从 0.2.112 抬到 0.2.126（miniloader 的钉版），
+     `Cargo.lock` 只做这一处改动并把 header 固定为 `version = 3`（1.60 读不了 v4）；
+  4. jni 0.19 的 `JString` 没有 `into_raw()`，要走 `JObject::from(..).into_inner()`；
+  5. `TwinRuntime` 抽出的辅助函数丢了 `app` 作用域 → 显式传 `Context`；
+  6. clippy `-D warnings`：`checked_add(..).unwrap_or(MAX)` 与无意义 `as u64`。
+- 结果：**Android baseline build 45972225886 成功**；并手动发布带此检查的 APK
+  <https://github.com/ylh440104/twoyi-baseline/releases/tag/build-45972994538>
+  （`twoyi_0.5.4-11270925-debug.apk`，216,552,303 字节，
+  SHA-256 `0d9d03f2758b47404201480c2f7ddb56bda69796fb0406eb5343ca37aa033bb6`）。
+- **边界**：APK 里的这条路径**还没有在真机上跑过**；它证明的是「loader 的核心逻辑随 App 一起构建、
+  且接口可用」，不等于设备上已经显示正确判定。loader 单测仍在本机 bionic 上 91 项全绿。
+
 ## 阶段四十三：`DT_RELR` 压缩重定位，四个系统二进制全部可装载（91 项，本机实测）
 
 - 新增 `reloc::relr_relocations()`：把 `DT_RELR`/`DT_RELRSZ` 展开成槽地址（直接项 + 位图项），
