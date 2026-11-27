@@ -139,6 +139,20 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段三十一：数据通路打通——从 fd 读出 ELF 并映射（68 项单测）
+
+- `transport::read_all_fd(fd)`：`fstat` 取长度 + `pread` 循环读满，**不动文件偏移**
+  （这样同一个描述符之后还能再用）；读不满或空文件直接报错。
+- `session::load_from_attach(loader_fd, echo_a, echo_b, page, bridge)`：把官方 loader 的数据通路
+  串成一次调用——`B1F2` 拿到描述符 → 从描述符读出 ELF → 解析 → 应用重定位/跳转槽 → 映射。
+  返回 `(Attached, MappedImage)`；描述符**保持打开**，因为来宾之后还要用它
+  （对应 `TWOYI_LINKER_BOOT_DATA_FD`）。
+- 新增测试 `the_loader_reads_the_guest_from_the_descriptor_and_maps_it`：broker 把打开的 ELF
+  （含 `ff 43 00 d1` 这类 AArch64 指令字节）的 fd 递过去，loader 侧真的读到并映射；
+  断言**映射后的入口字节与文件里的 payload 完全一致**。
+- CI 运行 45949181122 全绿：**68 项**；同批 host 回归与 Android 构建也通过。
+- 边界：仍然没有「跳转执行」——映进来的是 AArch64 代码，CI 是 x86；也没有 TLS 与 `dlopen` 语义。
+
 ## 阶段三十：完整握手跑在真实 socketpair + fd 上（67 项单测）
 
 - 新增 `tools/miniloader/src/session.rs`：把 `B1F2` → `TBD1` 的完整会话搬到 `socketpair` 上，
