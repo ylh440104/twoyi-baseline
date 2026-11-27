@@ -139,6 +139,23 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段二十七：Android 侧的来宾镜像体检（host 用例 + 构建通过）
+
+- 新增 `GuestRomPreflight.java`（**纯 Java，无任何 Android 类型**）：读来宾 `rootfs/init`
+  的 ELF 头，给出结构化结论——`MISSING / NOT_ELF / WRONG_CLASS / WRONG_MACHINE /
+  ENTRY_NOT_EXECUTABLE / DYNAMICALLY_LINKED / OK`。
+  这样「启动失败」会变成「系统镜像是 32 位」「init 不是可执行程序」「入口不可执行」这类**具体原因**。
+- `TwinRuntime.startPhone()` 在激活实例之前先跑这个体检，不合格就用对应文案返回给界面；
+  判定到文案的映射放在 UI 层（`TwinRuntime`），类本身保持可在宿主机编译。
+- 新增 `tools/GuestRomPreflightTest.java` 7 个用例（缺失、脚本、32 位、x86-64、入口不可执行、
+  PT_DYNAMIC、正常），并**额外断言源码里不出现 `android.` / `R.string`**——防止以后有人把
+  Android 依赖加回来、让宿主机跑不动。
+- CI：host 回归 45937511165 全绿，`PASS: guest init preflight names the structural reason it cannot load`；
+  Android 构建同批通过。
+- 期间抓出两个我自己的错：类里原本引用了 `R.string`/`android.os.Build` 导致宿主机编译不了
+  （run 45936951718），以及测试 fixture 把 entry 和段基址传错位、导致「正常镜像」被判不合格。
+  前者改成纯 Java，后者修正 fixture 后核对过四种判定的等价推导。
+
 ## 阶段二十六：装载前判定 preflight（59 项单测）
 
 - 新增 `tools/miniloader/src/preflight.rs`：把所有「装载前就知道的事」汇成一个判定——
