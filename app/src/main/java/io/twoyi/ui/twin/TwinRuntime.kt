@@ -123,11 +123,11 @@ object TwinRuntime {
         ).absolutePath
         val loaderVerdict = GuestLoaderCheck.ask(initPath)
         if (loaderVerdict != null) {
-            recordPreflight(loaderVerdict, initPath)
+            recordPreflight(app, loaderVerdict, initPath)
             if (!GuestLoaderCheck.isLoadable(loaderVerdict)) {
                 return loaderVerdict
             }
-            return startRegistered(id, registry)
+            return startRegistered(app, id, registry)
         }
 
         // Name the structural problem before anything tries to run the image.
@@ -135,7 +135,7 @@ object TwinRuntime {
             File(GuestSlotLayout.baseDirectory(dataDir, registry.slotOf(id)), "rootfs/init"),
             isArm64Build()
         )
-        recordPreflight(verdict.name, initPath)
+        recordPreflight(app, verdict.name, initPath)
         if (verdict != GuestRomPreflight.Verdict.OK) {
             return app.getString(
                 when (verdict) {
@@ -153,11 +153,15 @@ object TwinRuntime {
                 }
             )
         }
-        return startRegistered(id, registry)
+        return startRegistered(app, id, registry)
     }
 
     /** Activate the instance and open its window; the last step of a start. */
-    private fun startRegistered(id: String, registry: GuestInstanceRegistry): String? = try {
+    private fun startRegistered(
+        app: Context,
+        id: String,
+        registry: GuestInstanceRegistry
+    ): String? = try {
         registry.activate(id)
         registry.save()
         app.startActivity(
@@ -175,7 +179,7 @@ object TwinRuntime {
      * A start that fails before any window exists otherwise leaves nothing to attach to a
      * report, so the reason has to be written down when it is found.
      */
-    private fun recordPreflight(verdict: String, path: String) {
+    private fun recordPreflight(app: Context, verdict: String, path: String) {
         runCatching {
             GuestPreflightNote.record(
                 java.io.File(app.cacheDir, "preflight.txt"),
