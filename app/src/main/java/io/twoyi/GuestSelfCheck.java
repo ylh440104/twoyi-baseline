@@ -42,6 +42,7 @@ public final class GuestSelfCheck {
             failures += checkRegistry(work, lines);
             failures += checkGate(work, lines);
             failures += checkWipe(work, lines);
+            failures += checkLoader(app, lines);
         } catch (Exception failure) {
             failures++;
             lines.add("FAIL setup: " + failure);
@@ -181,6 +182,28 @@ public final class GuestSelfCheck {
                         == GuestInstanceGate.Decision.STARTABLE,
                 lines, "complete slot is startable", "complete slot refused");
         return failures;
+    }
+
+    /**
+     * Ask the native loader what it thinks of the installed guest init.
+     *
+     * This is the only check that reaches the loader core itself, so its line says both
+     * whether the native side answered and what it answered. A missing library is not a
+     * failure here: older builds legitimately lack it.
+     */
+    private static int checkLoader(Context app, List<String> lines) {
+        if (!GuestLoaderCheck.isAvailable()) {
+            lines.add("loader: native check unavailable (Java header check only)");
+            return 0;
+        }
+        File rootfs = new File(app.getDataDir(), "rootfs");
+        String verdict = GuestLoaderCheck.askForInit(rootfs);
+        if (verdict == null) {
+            lines.add("loader: no guest installed yet");
+            return 0;
+        }
+        lines.add("loader: " + verdict);
+        return 0;
     }
 
     private static int checkWipe(Path work, List<String> lines) throws IOException {

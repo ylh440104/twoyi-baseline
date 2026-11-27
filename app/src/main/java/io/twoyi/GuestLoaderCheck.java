@@ -14,9 +14,20 @@ package io.twoyi;
  * {@code null} and the caller keeps its Java-only verdict.
  */
 public final class GuestLoaderCheck {
+    private static final boolean LIBRARY_LOADED;
+
     static {
         // The same native library the renderer uses; loading it twice is a no-op.
-        System.loadLibrary("twoyi");
+        // A build without the library must degrade to "no answer", not crash the app:
+        // the callers already have a Java-only check to fall back to.
+        boolean loaded;
+        try {
+            System.loadLibrary("twoyi");
+            loaded = true;
+        } catch (UnsatisfiedLinkError missing) {
+            loaded = false;
+        }
+        LIBRARY_LOADED = loaded;
     }
 
     private GuestLoaderCheck() {}
@@ -25,6 +36,7 @@ public final class GuestLoaderCheck {
 
     /** True when the native loader answers, which is decided by trying once. */
     public static synchronized boolean isAvailable() {
+        if (!LIBRARY_LOADED) return false;
         if (available == null) {
             // Probing a small always-present binary says whether the native side answers
             // without depending on a guest being installed.
@@ -50,6 +62,19 @@ public final class GuestLoaderCheck {
         } catch (RuntimeException failure) {
             return null;
         }
+    }
+
+    /**
+     * The verdict for a slot's guest init, or {@code null} when nothing is installed.
+     *
+     * Kept separate from the native call so the decision is testable: whether an image is
+     * there at all is a file question, not a loader question.
+     */
+    public static String askForInit(File rootfsDirectory) {
+        if (rootfsDirectory == null) return null;
+        File init = new File(rootfsDirectory, "init");
+        if (!init.isFile()) return null;
+        return ask(init.getAbsolutePath());
     }
 
     /** True when the verdict starts with {@code LOADABLE}. */

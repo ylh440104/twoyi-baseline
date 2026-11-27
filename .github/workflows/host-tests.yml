@@ -44,6 +44,7 @@ jobs:
             app/src/main/java/io/twoyi/TwinTaskState.java \
             app/src/main/java/io/twoyi/GuestRomPreflight.java \
             app/src/main/java/io/twoyi/GuestPreflightNote.java \
+            app/src/main/java/io/twoyi/GuestLoaderCheck.java \
             app/src/main/java/io/twoyi/HalConnectionRegistry.java \
             app/src/main/java/io/twoyi/WindowOwner.java \
             app/src/main/java/io/twoyi/utils/RomInstallTransaction.java \
@@ -168,6 +169,13 @@ jobs:
           bash tools/device_probe.sh --dry-run
           # --help must not need adb either.
           bash tools/device_probe.sh --help | head -3
+      - name: Verify the loader check asks only about an installed guest
+        run: |
+          mkdir -p "$RUNNER_TEMP/loader-check"
+          javac -d "$RUNNER_TEMP/loader-check" \
+            app/src/main/java/io/twoyi/GuestLoaderCheck.java \
+            tools/GuestLoaderCheckTest.java
+          java -cp "$RUNNER_TEMP/loader-check" io.twoyi.GuestLoaderCheckTest
       - name: Verify guest preflight record
         run: |
           mkdir -p "$RUNNER_TEMP/preflight-note"
