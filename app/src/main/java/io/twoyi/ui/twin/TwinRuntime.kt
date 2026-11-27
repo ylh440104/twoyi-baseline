@@ -4,6 +4,8 @@ package io.twoyi.ui.twin
 import android.content.Context
 import android.content.Intent
 import io.twoyi.GuestInstanceGate
+import io.twoyi.GuestRomPreflight
+import io.twoyi.GuestSlotLayout
 import io.twoyi.GuestInstanceInstaller
 import io.twoyi.GuestInstanceManager
 import io.twoyi.GuestInstanceRegistry
@@ -111,6 +113,28 @@ object TwinRuntime {
         } catch (unknown: IllegalArgumentException) {
             return unknown.message
         }
+        // Name the structural problem before anything tries to run the image.
+        val verdict = GuestRomPreflight.check(
+            File(GuestSlotLayout.baseDirectory(dataDir, registry.slotOf(id)), "rootfs/init"),
+            isArm64Build()
+        )
+        if (verdict != GuestRomPreflight.Verdict.OK) {
+            return app.getString(
+                when (verdict) {
+                    GuestRomPreflight.Verdict.OK -> io.twoyi.R.string.guest_preflight_ok
+                    GuestRomPreflight.Verdict.MISSING -> io.twoyi.R.string.guest_preflight_missing
+                    GuestRomPreflight.Verdict.NOT_ELF -> io.twoyi.R.string.guest_preflight_not_elf
+                    GuestRomPreflight.Verdict.WRONG_CLASS ->
+                        io.twoyi.R.string.guest_preflight_wrong_class
+                    GuestRomPreflight.Verdict.WRONG_MACHINE ->
+                        io.twoyi.R.string.guest_preflight_wrong_machine
+                    GuestRomPreflight.Verdict.ENTRY_NOT_EXECUTABLE ->
+                        io.twoyi.R.string.guest_preflight_entry_not_executable
+                    GuestRomPreflight.Verdict.DYNAMICALLY_LINKED ->
+                        io.twoyi.R.string.guest_preflight_dynamically_linked
+                }
+            )
+        }
         return try {
             registry.activate(id)
             registry.save()
@@ -123,6 +147,10 @@ object TwinRuntime {
             failure.message ?: failure.javaClass.simpleName
         }
     }
+
+    /** True when this build only ships 64-bit guest support. */
+    private fun isArm64Build(): Boolean =
+        android.os.Build.SUPPORTED_64_BIT_ABIS.any { it == "arm64-v8a" }
 
     /** What the guest process reports right now. */
     enum class GuestPhase { STOPPED, STARTING, RUNNING, FAILED }

@@ -45,4 +45,11 @@
     <string name="guest_crash_continue">Continue</string>
     <string name="guest_open_shell">Open new shell (preview)</string>
     <string name="guest_open_shell_summary">Compose + Material 3 shell that mirrors the newest layout</string>
+    <string name="guest_preflight_ok">The guest system is ready</string>
+    <string name="guest_preflight_missing">The guest system is missing. Install it again.</string>
+    <string name="guest_preflight_not_elf">The guest init is not a program. The system image is damaged.</string>
+    <string name="guest_preflight_wrong_class">The system image is 32-bit but this build needs 64-bit.</string>
+    <string name="guest_preflight_wrong_machine">The system image is built for another CPU architecture.</string>
+    <string name="guest_preflight_entry_not_executable">The guest entry point is not executable. The system image is damaged.</string>
+    <string name="guest_preflight_dynamically_linked">The guest init is dynamically linked; this loader needs a static one.</string>
 </resources>

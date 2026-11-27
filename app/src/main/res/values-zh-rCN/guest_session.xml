@@ -45,4 +45,11 @@
     <string name="guest_crash_continue">继续</string>
     <string name="guest_open_shell">打开新界面（预览）</string>
     <string name="guest_open_shell_summary">与最新版布局一致的 Compose + Material 3 界面</string>
+    <string name="guest_preflight_ok">来宾系统就绪</string>
+    <string name="guest_preflight_missing">来宾系统缺失，请重新安装。</string>
+    <string name="guest_preflight_not_elf">来宾 init 不是可执行程序，系统镜像已损坏。</string>
+    <string name="guest_preflight_wrong_class">系统镜像是 32 位，而当前构建需要 64 位。</string>
+    <string name="guest_preflight_wrong_machine">系统镜像是为其它 CPU 架构编译的。</string>
+    <string name="guest_preflight_entry_not_executable">来宾入口不可执行，系统镜像已损坏。</string>
+    <string name="guest_preflight_dynamically_linked">来宾 init 是动态链接的，当前加载器需要静态链接。</string>
 </resources>
