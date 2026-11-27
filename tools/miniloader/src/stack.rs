@@ -20,7 +20,12 @@
 //! bound is enforceable here before anything is mapped.
 
 pub const AT_NULL: u64 = 0;
+pub const AT_PHDR: u64 = 3;
+pub const AT_PHENT: u64 = 4;
+pub const AT_PHNUM: u64 = 5;
 pub const AT_PAGESZ: u64 = 6;
+pub const AT_BASE: u64 = 7;
+pub const AT_ENTRY: u64 = 9;
 pub const AT_RANDOM: u64 = 25;
 pub const DEFAULT_MAX_BYTES: usize = 1 << 20;
 const STACK_ALIGN: usize = 16;
@@ -105,6 +110,30 @@ impl StackImage {
 
 fn push_u64(out: &mut Vec<u8>, value: u64) {
     out.extend_from_slice(&value.to_le_bytes());
+}
+
+/// The auxiliary vector a dynamically linked guest needs before it can start.
+///
+/// A guest `init` that is linked against a loader reads `AT_PHDR`, `AT_PHENT`,
+/// `AT_PHNUM` and `AT_ENTRY` to find its own program headers and entry point; without
+/// them it cannot relocate itself. `load_bias` is the difference between where the
+/// image was mapped and the addresses it was linked at.
+///
+/// Returns `None` when the program header table is not inside a mapped segment, which
+/// is not loadable by this design anyway.
+pub fn auxv_for(elf: &crate::elf::Elf<'_>, load_bias: i64, page_size: u64) -> Option<Vec<Auxv>> {
+    let phdr = elf.phdr_vaddr?;
+    let bias = load_bias as i128;
+    let at = |base: u64| -> u64 { (base as i128 + bias) as u64 };
+    Some(vec![
+        Auxv::new(AT_PAGESZ, page_size),
+        Auxv::new(AT_PHDR, at(phdr)),
+        Auxv::new(AT_PHENT, u64::from(elf.phdr_entry_size)),
+        Auxv::new(AT_PHNUM, u64::from(elf.phdr_count)),
+        Auxv::new(AT_ENTRY, at(elf.entry)),
+        // No interpreter of its own: the loader is already in this process.
+        Auxv::new(AT_BASE, 0),
+    ])
 }
 
 /// Build the image. String contents are placed after the pointer tables.

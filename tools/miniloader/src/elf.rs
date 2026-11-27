@@ -62,6 +62,11 @@ pub struct Elf<'a> {
     pub entry: u64,
     pub segments: Vec<Segment>,
     pub data: &'a [u8],
+    /// Virtual address of the program header table, when it is inside a mapped
+    /// segment. The guest linker is handed this as `AT_PHDR`.
+    pub phdr_vaddr: Option<u64>,
+    pub phdr_entry_size: u16,
+    pub phdr_count: u16,
 }
 
 fn read_u16(data: &[u8], offset: usize) -> Option<u16> {
@@ -150,10 +155,25 @@ impl<'a> Elf<'a> {
         if segments.is_empty() {
             return Err(ElfError::NoLoadSegments);
         }
+        // `e_phoff` is a file offset; the program headers only have a virtual address
+        // if some PT_LOAD covers that file range (normally the first segment does).
+        let phdr_offset = read_u64(data, 0x20).unwrap_or(0);
+        let phdr_vaddr = segments.iter().find_map(|segment| {
+            let start = segment.offset;
+            let end = segment.offset.checked_add(segment.filesz).unwrap_or(u64::MAX);
+            if phdr_offset >= start && phdr_offset < end {
+                Some(segment.vaddr + (phdr_offset - start))
+            } else {
+                None
+            }
+        });
         Ok(Elf {
             entry,
             segments,
             data,
+            phdr_vaddr,
+            phdr_entry_size: phentsize,
+            phdr_count: phnum,
         })
     }
 

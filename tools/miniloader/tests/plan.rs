@@ -234,3 +234,45 @@ fn empty_argv_is_still_a_valid_image() {
     assert_eq!(image.slot(image.layout.argc_offset).unwrap(), 0);
     assert_eq!(image.size % 16, 0);
 }
+#[test]
+fn the_guest_gets_the_auxv_its_linker_needs() {
+    // A guest that expects a loader reads AT_PHDR/AT_PHENT/AT_PHNUM/AT_ENTRY to find
+    // its own program headers; without them it cannot relocate itself.
+    let bytes = synth_elf(0x100, &[(0x100, 0x400000, 0x200, 0x400, PT_F_R | PT_F_X)]);
+    let image = Elf::parse(&bytes).expect("parse");
+    assert_eq!(image.phdr_entry_size, 0x38);
+    assert_eq!(image.phdr_count, 1);
+    // The program headers sit inside the first segment, so they have a virtual address.
+    assert_eq!(image.phdr_vaddr, Some(0x400000), "phdr sits at the segment base");
+
+    let bias: i64 = 0x7f00_0000;
+    let auxv = miniloader::stack::auxv_for(&image, bias, PAGE).expect("auxv");
+    let find = |kind: u64| auxv.iter().find(|entry| entry.kind == kind).map(|entry| entry.value);
+    assert_eq!(find(miniloader::stack::AT_PAGESZ), Some(PAGE));
+    assert_eq!(find(miniloader::stack::AT_PHDR), Some(0x7f00_0000 + 0x400000));
+    assert_eq!(find(miniloader::stack::AT_PHENT), Some(0x38));
+    assert_eq!(find(miniloader::stack::AT_PHNUM), Some(1));
+    assert_eq!(find(miniloader::stack::AT_ENTRY), Some(0x7f00_0000 + 0x100));
+    assert_eq!(find(miniloader::stack::AT_BASE), Some(0), "the loader is in this process");
+
+    // The vector is accepted by the stack builder and terminated with AT_NULL.
+    let stack = build_stack(&["/init"], &[], &auxv, 1 << 20).expect("stack");
+    let auxv_bytes = auxv.len() * 16;
+    let last = stack.layout.auxv_offset + auxv_bytes - 16;
+    assert_eq!(stack.slot(last).unwrap(), AT_NULL, "AT_NULL terminates the vector");
+    assert_eq!(stack.size % 16, 0);
+}
+
+#[test]
+fn a_negative_bias_still_produces_sane_auxv() {
+    // Mapping below the link address is legal; the arithmetic must not wrap.
+    let bytes = synth_elf(0x100, &[(0x100, 0x400000, 0x200, 0x400, PT_F_R | PT_F_X)]);
+    let image = Elf::parse(&bytes).expect("parse");
+    let auxv = miniloader::stack::auxv_for(&image, -0x1000, PAGE).expect("auxv");
+    let entry = auxv
+        .iter()
+        .find(|candidate| candidate.kind == miniloader::stack::AT_ENTRY)
+        .map(|candidate| candidate.value)
+        .unwrap();
+    assert_eq!(entry, 0x100 - 0x1000, "the entry follows the bias, wrapping as the ABI does");
+}
