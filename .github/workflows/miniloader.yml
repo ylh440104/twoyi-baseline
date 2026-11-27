@@ -117,6 +117,36 @@ jobs:
             exit 1
           fi
           echo "mapped a real aarch64 image into this process"
+
+          # A dynamically linked guest imports symbols; the bridge must report which
+          # of them this host can serve and which it cannot.
+          cat > "$work/dyn.c" <<'EOF'
+          #include <stdio.h>
+          #include <stdlib.h>
+          int main(void) {
+              char *buffer = malloc(64);
+              if (buffer == NULL) return 1;
+              snprintf(buffer, 64, "%d", 42);
+              puts(buffer);
+              free(buffer);
+              return 0;
+          }
+          EOF
+          aarch64-linux-gnu-gcc -O1 -o "$work/dyn" "$work/dyn.c"
+          aarch64-linux-gnu-readelf -d "$work/dyn" | grep -E 'NEEDED|PLTGOT' || true
+          cargo run --manifest-path tools/miniloader/Cargo.toml --bin miniloader-plan -- \
+            "$work/dyn" 4096 | tee "$RUNNER_TEMP/imports-aarch64.txt"
+
+          grep -qE 'imports: [1-9][0-9]* slot\(s\)' "$RUNNER_TEMP/imports-aarch64.txt"
+          grep -q 'imports servable: ' "$RUNNER_TEMP/imports-aarch64.txt"
+          # These live in every C runtime, so the bridge must have found them.
+          for symbol in malloc free puts; do
+            grep -q "imports servable: .*\b$symbol\b" "$RUNNER_TEMP/imports-aarch64.txt" || {
+              echo "::error::the bridge did not resolve $symbol from this host"
+              exit 1
+            }
+          done
+          echo "bridge reported the aarch64 imports"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -127,4 +157,5 @@ jobs:
             ${{ runner.temp }}/plan.txt
             ${{ runner.temp }}/plan-aarch64.txt
             ${{ runner.temp }}/map-aarch64.txt
+            ${{ runner.temp }}/imports-aarch64.txt
             ${{ runner.temp }}/rustfmt.diff

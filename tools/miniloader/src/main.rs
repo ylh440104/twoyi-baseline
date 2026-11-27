@@ -5,7 +5,9 @@
 //! the loader would do to a guest binary without any privileged operation.
 
 
-use miniloader::{build_stack, elf::Elf, map::plan, stack::Auxv, stack::AT_PAGESZ};
+use miniloader::{
+    build_stack, elf::Elf, map::plan, stack::Auxv, stack::AT_PAGESZ, SymbolTable,
+};
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -46,6 +48,50 @@ fn main() {
             segment.bss_len(),
             segment.flags
         );
+    }
+
+    // What does the guest import, and can this host serve it? This is the check a
+    // real device would run before mapping anything.
+    match miniloader::symbols::jump_slots(&parsed) {
+        Ok(slots) if !slots.is_empty() => {
+            let mut names: Vec<String> = Vec::new();
+            for slot in &slots {
+                if !names.contains(&slot.symbol) {
+                    names.push(slot.symbol.clone());
+                }
+            }
+            let mut table = SymbolTable::new();
+            let found = table.from_current_process(
+                &names.iter().map(String::as_str).collect::<Vec<&str>>(),
+            );
+            let missing: Vec<&String> = names
+                .iter()
+                .filter(|name| table.resolve(name).is_none())
+                .collect();
+            println!(
+                "imports: {} slot(s), {} distinct name(s), {} servable here",
+                slots.len(),
+                names.len(),
+                found.len()
+            );
+            if !found.is_empty() {
+                println!("imports servable: {}", found.join(" "));
+            }
+            if missing.is_empty() {
+                println!("imports resolved: all");
+            } else {
+                println!(
+                    "imports missing: {}",
+                    missing
+                        .iter()
+                        .map(|name| name.as_str())
+                        .collect::<Vec<&str>>()
+                        .join(" ")
+                );
+            }
+        }
+        Ok(_) => println!("imports: none"),
+        Err(error) => println!("imports: unreadable ({error:?})"),
     }
 
     let mapping = match plan(&parsed.segments, parsed.entry, page_size) {
