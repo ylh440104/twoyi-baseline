@@ -32,7 +32,7 @@ fn marker_descriptor(path: &std::path::Path, text: &str) -> i32 {
 
 fn read_marker(fd: i32, length: usize) -> String {
     let mut buffer = [0u8; 16];
-    let count = unsafe { libc::pread(fd, buffer.as_mut_ptr() as *mut libc::c_void, length as i64, 0) };
+    let count = unsafe { libc::pread(fd, buffer.as_mut_ptr() as *mut libc::c_void, length, 0) };
     assert_eq!(count as usize, length, "the handed-over descriptor must be readable");
     String::from_utf8(buffer[..length].to_vec()).expect("utf8")
 }

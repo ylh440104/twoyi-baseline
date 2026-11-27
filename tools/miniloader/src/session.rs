@@ -71,9 +71,12 @@ pub fn attach_over_socketpair(
             reply.len()
         )));
     }
-    let decoded = B1F2::decode(&reply).map_err(|error| SessionError::Mismatch(format!("{error:?}")))?;
+    let decoded =
+        B1F2::decode(&reply).map_err(|error| SessionError::Mismatch(format!("{error:?}")))?;
     if decoded.echo_a != echo_a || decoded.echo_b != echo_b {
-        return Err(SessionError::Mismatch("reply did not echo the request".into()));
+        return Err(SessionError::Mismatch(
+            "reply did not echo the request".into(),
+        ));
     }
     if !decoded.handles_present() {
         return Err(SessionError::Mismatch("reply carried a zero handle".into()));
@@ -109,7 +112,8 @@ pub fn serve_attach(
         // The request must not smuggle a descriptor in; ignore it rather than leak.
         return Err(SessionError::Mismatch("request carried an unexpected descriptor".into()));
     }
-    let decoded = B1F2::decode(&request).map_err(|error| SessionError::Mismatch(format!("{error:?}")))?;
+    let decoded =
+        B1F2::decode(&request).map_err(|error| SessionError::Mismatch(format!("{error:?}")))?;
     let mut reply = B1F2::request(decoded.echo_a, decoded.echo_b);
     reply.handle_hi = handle_hi;
     reply.handle_lo = handle_lo;
@@ -176,7 +180,8 @@ pub fn serve_exec(broker_fd: RawFd, tag: u16) -> Result<(u32, usize), SessionErr
             frame.len()
         )));
     }
-    let block = Tbd1::decode(&frame).map_err(|error| SessionError::Mismatch(format!("{error:?}")))?;
+    let block =
+        Tbd1::decode(&frame).map_err(|error| SessionError::Mismatch(format!("{error:?}")))?;
     let reply = Tbd1Reply::success(tag, block.sequence, 0);
     send_frame(broker_fd, &reply.encode(), None)?;
     Ok((block.sequence, block.path.len()))
