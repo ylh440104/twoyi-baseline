@@ -9,7 +9,7 @@
 //! anything is mapped into a live process.
 
 use crate::elf::{Elf, Segment};
-use crate::map::{align_down, plan, MapError, PROT_EXEC};
+use crate::map::{align_down, plan, MapError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImageError {
