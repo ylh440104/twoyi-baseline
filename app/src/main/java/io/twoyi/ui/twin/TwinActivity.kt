@@ -605,10 +605,13 @@ private fun ProviderScreen(state: TwinState) {
                     }
                     problems = found
                     if (found.isEmpty()) {
-                        TwinRuntime.rememberProvider(context, model)
-                        TwinRuntime.setProviderConnected(context, true)
-                        state.model = true
-                        state.screen = Screen.Main
+                        val saved = TwinRuntime.rememberProvider(context, baseUrl.trim(), model, apiKey)
+                        if (!saved) {
+                            problems = listOf(R.string.twin_key_save_failed)
+                        } else {
+                            state.model = true
+                            state.screen = Screen.Main
+                        }
                     }
                 }
             ) { Text(stringResource(R.string.twin_provider_connect)) }
@@ -633,7 +636,10 @@ private fun SettingsScreen(state: TwinState) {
         InfoRow(
             R.string.twin_settings_model,
             if (state.model) {
-                TwinRuntime.lastProviderLabel(context) ?: stringResource(R.string.twin_provider_active)
+                val label = TwinRuntime.lastProviderLabel(context)
+                    ?: stringResource(R.string.twin_provider_active)
+                val url = TwinRuntime.lastProviderUrl(context)
+                if (url.isNullOrEmpty()) label else "$label\n$url"
             } else {
                 stringResource(R.string.twin_settings_model_disconnected)
             }

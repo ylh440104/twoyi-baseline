@@ -203,4 +203,5 @@
     <string name="twin_network_error">Cannot connect. Check your network or API URL.</string>
     <string name="twin_parse_error">Could not read the model response. Please try again later.</string>
     <string name="twin_provider_fetching_models">Fetching models...</string>
+    <string name="twin_key_save_failed">Could not securely save the key on this device. Please try again.</string>
 </resources>

@@ -26,6 +26,9 @@ object TwinRuntime {
     private const val DEFAULT_INSTANCE = "twin"
     private const val PREFS = "twin-shell"
     private const val KEY_PROVIDER_CONNECTED = "provider_connected"
+    private const val KEY_PROVIDER_MODEL = "provider_model"
+    private const val KEY_PROVIDER_URL = "provider_url"
+    private const val KEY_PROVIDER_SECRET = "provider_secret"
 
     /** What the UI needs to know about the Twin phone. */
     data class PhoneState(
@@ -135,16 +138,38 @@ object TwinRuntime {
     }
 
     fun lastProviderLabel(context: Context): String? =
-        context.applicationContext
-            .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString("provider_label", null)
+        prefs(context).getString(KEY_PROVIDER_MODEL, null)
 
-    fun rememberProvider(context: Context, label: String) {
-        context.applicationContext
-            .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putString("provider_label", label)
+    fun lastProviderUrl(context: Context): String? =
+        prefs(context).getString(KEY_PROVIDER_URL, null)
+
+    /** Full connection, with the key decrypted when it can be opened. */
+    data class ProviderConfig(val baseUrl: String, val model: String, val key: String?)
+
+    fun providerConfig(context: Context): ProviderConfig? {
+        val model = lastProviderLabel(context) ?: return null
+        val envelope = prefs(context).getString(KEY_PROVIDER_SECRET, null)
+        return ProviderConfig(
+            baseUrl = lastProviderUrl(context).orEmpty(),
+            model = model,
+            key = envelope?.let { TwinSecretStore.open(context, it) }
+        )
+    }
+
+    /**
+     * Store a connection. The key only counts as saved when the keystore sealed it;
+     * otherwise the caller must report `twin_key_save_failed` instead of pretending.
+     */
+    fun rememberProvider(context: Context, baseUrl: String, model: String, key: String): Boolean {
+        val envelope = TwinSecretStore.seal(context, key)
+        prefs(context).edit()
+            .putString(KEY_PROVIDER_MODEL, model)
+            .putString(KEY_PROVIDER_URL, baseUrl)
             .apply()
+        if (envelope == null) return false
+        prefs(context).edit().putString(KEY_PROVIDER_SECRET, envelope).apply()
+        setProviderConnected(context, true)
+        return true
     }
 
     private fun instanceId(context: Context): String {
