@@ -28,6 +28,12 @@ impl From<ImageError> for ExecError {
     }
 }
 
+impl From<crate::map::MapError> for ExecError {
+    fn from(error: crate::map::MapError) -> Self {
+        ExecError::Image(ImageError::Map(error))
+    }
+}
+
 impl std::fmt::Display for ExecError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -140,13 +146,15 @@ impl MappedImage {
                 continue;
             }
             let prot = prot_for(segment.flags);
-            if let Err(error) = protect(base, len, offset, span_len, libc::PROT_READ | libc::PROT_WRITE) {
+            if let Err(error) =
+                protect(base, len, offset, span_len, libc::PROT_READ | libc::PROT_WRITE)
+            {
                 return Err(cleanup(base, len, error));
             }
             unsafe {
                 std::ptr::copy_nonoverlapping(source.as_ptr(), base.add(offset), filesz);
             }
-            if let Err(error) = protect(base, len, offset, span_len, prot) {
+            if let Err(error) = protect(base, len, offset, span_len, prot as i32) {
                 return Err(cleanup(base, len, error));
             }
             segments.push(MappedSegment {
