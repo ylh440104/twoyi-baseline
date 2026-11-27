@@ -16,6 +16,7 @@ pub mod preflight;
 pub mod proto;
 pub mod reloc;
 pub mod resolver;
+pub mod session;
 pub mod symbols;
 pub mod stack;
 pub mod transport;
