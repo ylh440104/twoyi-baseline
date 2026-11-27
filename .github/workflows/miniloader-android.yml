@@ -90,12 +90,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
-      - name: Install a Rust toolchain with the android target
+      - name: Install the Rust toolchain the app itself pins
         run: |
           set -euo pipefail
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-          rustup target add aarch64-linux-android
+          # 1.60 is what the app's native library already builds with. Newer toolchains
+          # link `-lunwind`, which the NDK does not ship, so the link step fails with
+          # "unable to find library -lunwind".
+          rustup toolchain install 1.60.0 --profile minimal
+          rustup default 1.60.0
+          rustup target add aarch64-linux-android --toolchain 1.60.0
           rustc --version
       - name: Fetch the NDK
         run: |
