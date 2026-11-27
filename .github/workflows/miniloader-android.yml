@@ -125,6 +125,29 @@ jobs:
           readelf -d "$object" | grep NEEDED || true
           file "$object" | grep -q 'ARM aarch64'
           echo "cross build produced an aarch64 android binary"
+      - name: Stage the binary for a device
+        run: |
+          set -euo pipefail
+          object="tools/miniloader/target/aarch64-linux-android/release/miniloader-plan"
+          mkdir -p "$RUNNER_TEMP/device"
+          cp "$object" "$RUNNER_TEMP/device/miniloader-plan"
+          sha256sum "$RUNNER_TEMP/device/miniloader-plan" | tee "$RUNNER_TEMP/device/sha256.txt"
+          # A short readme so the artifact is usable on its own.
+          cat > "$RUNNER_TEMP/device/HOWTO.txt" <<'EOF'
+          Push to an Android device and run the loader diagnostic there:
+
+            adb push miniloader-plan /data/local/tmp/
+            adb shell chmod 755 /data/local/tmp/miniloader-plan
+            adb shell /data/local/tmp/miniloader-plan <some-elf> 4096 --check
+            adb shell /data/local/tmp/miniloader-plan <some-elf> 4096 --map
+
+          --check  prints the preflight verdict and the imports this device can serve.
+          --map    really maps the image and prints the entry bytes.
+
+          With the twoyi app installed (root needed for its data dir):
+            adb shell su 0 /data/local/tmp/miniloader-plan /data/data/io.twoyi/rootfs/init 4096 --check
+          EOF
+          ls -l "$RUNNER_TEMP/device"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -133,3 +156,4 @@ jobs:
           retention-days: 7
           path: |
             ${{ runner.temp }}/android-build.log
+            ${{ runner.temp }}/device/
