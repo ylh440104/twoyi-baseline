@@ -36,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -71,18 +72,28 @@ private enum class Tab(val label: Int) {
 
 private enum class Screen { Boot, Main, Provider }
 
-private class TwinState {
+private class TwinState(
+    val phone: TwinRuntime.PhoneState,
+    val modelConnected: Boolean
+) {
     var screen by mutableStateOf(Screen.Boot)
     var tab by mutableStateOf(Tab.Twin)
-    var phoneCreated by mutableStateOf(false)
-    var modelConnected by mutableStateOf(false)
+    var phoneCreated by mutableStateOf(phone.created)
+    var phoneReady by mutableStateOf(phone.ready)
+    var busy by mutableStateOf(false)
+    var error by mutableStateOf(phone.message)
+    var model by mutableStateOf(modelConnected)
     var draft by mutableStateOf("")
     val messages = mutableStateListOf<Pair<String, Boolean>>()
 }
 
 @Composable
 private fun TwinApp() {
-    val state = remember { TwinState() }
+    val context = LocalContext.current
+    val state = remember {
+        val phone = TwinRuntime.phoneState(context)
+        TwinState(phone, TwinRuntime.isProviderConnected(context))
+    }
     when (state.screen) {
         Screen.Boot -> BootScreen(state)
         Screen.Main -> MainScreen(state)
@@ -116,13 +127,23 @@ private fun BootScreen(state: TwinState) {
             desc = if (state.phoneCreated) R.string.twin_boot_step1_done_desc else R.string.twin_boot_step1_desc,
             action = R.string.twin_boot_step1_action,
             done = state.phoneCreated,
-            onAction = { state.phoneCreated = true }
+            busy = state.busy,
+            onAction = {
+                state.busy = true
+                Thread {
+                    val result = TwinRuntime.createPhone(context)
+                    state.busy = false
+                    state.phoneCreated = result.created
+                    state.phoneReady = result.ready
+                    state.error = result.message
+                }.start()
+            }
         )
         BootStep(
-            title = if (state.modelConnected) R.string.twin_boot_step2_done_title else R.string.twin_boot_step2_title,
-            desc = if (state.modelConnected) R.string.twin_boot_step2_done_desc else R.string.twin_boot_step2_desc,
+            title = if (state.model) R.string.twin_boot_step2_done_title else R.string.twin_boot_step2_title,
+            desc = if (state.model) R.string.twin_boot_step2_done_desc else R.string.twin_boot_step2_desc,
             action = R.string.twin_boot_step2_action,
-            done = state.modelConnected,
+            done = state.model,
             onAction = { state.screen = Screen.Provider }
         )
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -140,6 +161,7 @@ private fun BootStep(
     desc: Int,
     action: Int,
     done: Boolean,
+    busy: Boolean = false,
     onAction: () -> Unit
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -147,7 +169,13 @@ private fun BootStep(
             Text(stringResource(title), style = MaterialTheme.typography.titleMedium)
             Text(stringResource(desc), style = MaterialTheme.typography.bodyMedium)
             if (!done) {
-                Button(onClick = onAction) { Text(stringResource(action)) }
+                Button(enabled = !busy, onClick = onAction) {
+                    Text(
+                        stringResource(
+                            if (busy) R.string.twin_boot_preparing else action
+                        )
+                    )
+                }
             }
         }
     }
@@ -197,7 +225,7 @@ private fun TwinSurface(state: TwinState) {
             ) {
                 Text(
                     text = stringResource(
-                        if (state.modelConnected) R.string.twin_input_hint
+                        if (state.model) R.string.twin_input_hint
                         else R.string.twin_input_hint_need
                     ),
                     style = MaterialTheme.typography.bodyMedium,
@@ -236,7 +264,7 @@ private fun TwinSurface(state: TwinState) {
 @Composable
 private fun Composer(state: TwinState) {
     val notWired = "(" + stringResource(R.string.twin_agent_not_wired) + ")"
-    val enabled = state.modelConnected && state.phoneCreated
+    val enabled = state.model && state.phoneCreated
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -255,7 +283,7 @@ private fun Composer(state: TwinState) {
                     text = stringResource(
                         when {
                             !state.phoneCreated -> R.string.twin_agent_no_phone
-                            !state.modelConnected -> R.string.twin_input_hint_need
+                            !state.model -> R.string.twin_input_hint_need
                             else -> R.string.twin_input_hint
                         }
                     ),
@@ -287,6 +315,7 @@ private fun Composer(state: TwinState) {
 
 @Composable
 private fun PhoneSurface(state: TwinState) {
+    val context = LocalContext.current
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -304,8 +333,24 @@ private fun PhoneSurface(state: TwinState) {
                 stringResource(R.string.twin_phone_empty_foot),
                 style = MaterialTheme.typography.bodySmall
             )
-            Button(onClick = { state.phoneCreated = true }) {
-                Text(stringResource(R.string.twin_create_phone))
+            Button(
+                enabled = !state.busy,
+                onClick = {
+                    state.busy = true
+                    Thread {
+                        val result = TwinRuntime.createPhone(context)
+                        state.busy = false
+                        state.phoneCreated = result.created
+                        state.phoneReady = result.ready
+                        state.error = result.message
+                    }.start()
+                }
+            ) {
+                Text(
+                    stringResource(
+                        if (state.busy) R.string.twin_boot_preparing else R.string.twin_create_phone
+                    )
+                )
             }
         } else {
             SectionTitle(stringResource(R.string.twin_agent_name))
@@ -319,6 +364,7 @@ private fun PhoneSurface(state: TwinState) {
 
 @Composable
 private fun ProviderScreen(state: TwinState) {
+    val context = LocalContext.current
     var baseUrl by remember { mutableStateOf("") }
     var apiKey by remember { mutableStateOf("") }
     var model by remember { mutableStateOf("") }
@@ -341,7 +387,9 @@ private fun ProviderScreen(state: TwinState) {
             Button(
                 enabled = apiKey.isNotBlank() && model.isNotBlank(),
                 onClick = {
-                    state.modelConnected = true
+                    TwinRuntime.rememberProvider(context, model)
+                    TwinRuntime.setProviderConnected(context, true)
+                    state.model = true
                     state.screen = Screen.Main
                 }
             ) { Text(stringResource(R.string.twin_provider_connect)) }
