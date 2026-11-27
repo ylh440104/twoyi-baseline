@@ -139,6 +139,24 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段三十三：设备可直接验证的两个产物（CI 自发布）
+
+用户有设备，于是把两条验证路径都做成**可直接拿到的产物**：
+
+1. **APK**：`android-build.yml` 新增 `publish` job（`workflow_dispatch` + 输入 `publish_release`）。
+   它把本次构建的 APK **在 CI 里直接发成 Release**，避免再经本地转手 200 MB。
+   - 手动触发：`POST /dispatches {"inputs":{"publish_release":true}}` → **204**，
+     run 45955698212 **success**；
+   - 产物：<https://github.com/ylh440104/twoyi-baseline/releases/tag/build-45955698212>，
+     `twoyi_0.5.4-11270705-debug.apk`，216,526,703 字节，
+     SHA-256 `387334ed83d06741d056d56444e48d2f5e3bad10b877163b6a5d18da162c395f`。
+2. **loader 诊断二进制**：`miniloader-android.yml` 的 `android` job 现在把交叉编译出的
+   `miniloader-plan`（aarch64-android）连同 `sha256.txt` 与 `HOWTO.txt` 一起传成 artifact
+   `loader-android-cross-build`（1,047,259 字节），可直接 `adb push` 到设备运行。
+
+**说明**：本地从 GitHub 拉 216 MB 反复中断（三次都在 ~20 MB 处断开），所以改成 CI 自发；
+这不改变产物本身，只是分发路径更可靠。
+
 ## 阶段三十二：在 ARM runner 上原生跑测试 + 交叉编译到 Android（手动触发验证）
 
 - 新增 `.github/workflows/miniloader-android.yml`，两个 job：
