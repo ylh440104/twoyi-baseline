@@ -69,7 +69,36 @@
 
 ---
 
-## 4. 一句话结论
+
+## 4. 本轮新增：JNI 注册表**无法静态取出**（负结论，附工具）
+
+为了拿到 `nativeResolve` 的地址（988 字节布局就藏在它里面），新写了
+`tools/ghidra/find_jni_table.py`：解析 ELF64、解开 `R_AARCH64_RELATIVE`、再扫描数据段里
+"指向方法名字符串的指针"，按 `{name, sig, fn}` 三元组还原注册表。
+
+实测（run 45915015830，产物 `jni-entries.txt`）：
+
+| 检查项 | 结果 |
+|---|---|
+| 段/节 | 3 个 `PT_LOAD`、28 个节 |
+| `R_AARCH64_RELATIVE` 重定位 | **0 条** |
+| `nativeHandle` 字符串 | 存在，`0x5eaa2` |
+| `native-fence` 字符串 | 存在，`0x5f325` |
+| `nativeResolve` / `nativePrepare` / `nativeStop` / `nativeAttachWindow` / `nativeConfigureEndpoints` / `nativeHandleTouch` / `nativeSendKeycode` / `nativeResetWindow` / `nativeRemoveWindow` | **全部不存在** |
+| 指向上述字符串的数据指针 | **0 个** |
+
+结论：`RegisterNatives` 用的名称表**不在文件的静态数据里**，三种可能：
+
+1. 名称在运行时拼装（混淆），所以 `nativeResolve` 这类明文根本没进 `.rodata`；
+2. 表由构造函数在 `.bss` 里逐项写入，文件里是 0，且没有 RELATIVE 重定位可解；
+3. 注册走的是自定义 `dlsym` + 手动绑定，不经过标准三元组表。
+
+**对路线的含义**：静态找到 `nativeResolve` 这条路走不通，只能改走「对 `JNI_OnLoad`
+反编译后找它传给 `RegisterNatives` 的第三个参数」，或真机动态挂钩。后者已超出本机能力。
+
+附：`find_jni_table.py` 本身是可复用的（将来若有别的 so 用静态表，一条命令即可列出全部注册项）。
+
+## 5. 一句话结论
 
 **loader 的「请求」这一半已经是指令流级的实证；「应答」和「它让宿主做什么」是推断；
 `libtwoyi.so` 的 Java 层接口是实证，native 层（resolver 布局、HAL 帧细节、gfxstream 端点文件）是空缺。**

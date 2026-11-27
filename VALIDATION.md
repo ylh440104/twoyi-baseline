@@ -139,6 +139,18 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段一：JNI 注册表的静态恢复（本轮，负结论）
+
+- 目标：拿到 `nativeResolve` 的函数地址，进而读 988 字节布局。
+- 手段：新写 `tools/ghidra/find_jni_table.py`，解析 ELF64 + 解开 `R_AARCH64_RELATIVE`，
+  扫描「指向方法名字符串的指针」，按 `{name, sig, fn}` 还原 `RegisterNatives` 表。
+- 结果（run 45915015830）：`nativeHandle`、`native-fence` 字符串存在，但 **`nativeResolve` 等 9 个名字
+  在 `.rodata` 里根本不存在**；`R_AARCH64_RELATIVE` 为 0 条；没有任何数据指针指向这些字符串。
+- 结论：注册表不在静态数据里（名称运行时拼装 / 表在 `.bss` 由构造器写入 / 走自定义绑定）。
+  **静态路线到此为止**，下一步只能是反编译 `JNI_OnLoad` 找它传给 `RegisterNatives` 的第三个参数，
+  或真机动态挂钩。
+- 工具保留：`find_jni_table.py` 对将来任何「静态表」的 so 都可一条命令列出全部注册项。
+
 ## 阶段一补漏：camera opcode 由 smali 解出（本轮）
 
 - 起因：上一版 `HAL_PROTOCOL.md` 把 camera opcode 列为空缺，理由是 jadx 跳过了两个方法。
