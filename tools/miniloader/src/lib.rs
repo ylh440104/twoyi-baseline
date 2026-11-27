@@ -14,6 +14,7 @@ pub mod map;
 pub mod proto;
 pub mod reloc;
 pub mod resolver;
+pub mod symbols;
 pub mod stack;
 
 pub use elf::{Elf, ElfError, Segment};
@@ -23,5 +24,6 @@ pub use map::{plan, MapError, MappingPlan};
 pub use broker::{Broker, ChannelError, HandshakeClient};
 pub use proto::{PathError, ProtoError, Tbd1, Tbd1Reply, B1F2};
 pub use reloc::{Relative, RelocError};
+pub use symbols::{apply_jump_slots, dynamic_symbols, jump_slots, DynSym, JumpSlot, SymError};
 pub use resolver::{request_once, serve_once, Resolver, ResolverError};
 pub use stack::{build as build_stack, Auxv, StackError, StackImage};
