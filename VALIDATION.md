@@ -139,6 +139,23 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段三轮（续五）：模型列表真的会去拉（host 用例 + 构建通过）
+
+- 新增 `TwinModelCatalog.java`（纯逻辑，宿主可测）：
+  - `modelsUrl()`：拼 `/models`，处理尾斜杠、双斜杠、空白、null；
+  - `classify()`：2xx → OK、401/403 → BAD_KEY、404 → NOT_FOUND、其余 → SERVER；
+  - `parseModelIds()`：从 OpenAI 风格 `{"data":[{"id":...}]}` 里取 id，处理任意空白、转义引号、去重；
+  - `containsErrorObject()` / `errorMessage()`：识别 `{"error":{...}}` 并取出 `message`。
+- 新增 `TwinModelService.kt`：`HttpURLConnection` GET，`Authorization: Bearer`，15 s 超时，
+  把结果映射到既有文案；错误体也读出来作为 detail。
+- 界面：连接页「获取模型」现在真的发请求，成功后把模型列成可点选的按钮（选中带 ✓），
+  失败显示 `twin_key_invalid` / `twin_network_error` / `twin_parse_error` 等；请求中按钮禁用并显示
+  `twin_provider_fetching_models`。
+- 证据：run 45923544357 的 `PASS: model catalog URL, status mapping and JSON reading`；
+  Android 构建 run 45923544344 通过。
+- 边界：**网络请求本身没有在 CI 里跑过**（无外网凭据），只验证了 URL/状态码/JSON 三类纯逻辑；
+  真实服务商的响应差异仍需真机或人工验证。
+
 ## 阶段三轮（续四）：模型连接表单的本地校验（host 用例 + 构建通过）
 
 - 新增 `TwinProviderRules.java`（不含 Android 类型，可在宿主机跑）：三类本地拒绝——
