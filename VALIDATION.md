@@ -139,6 +139,23 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段四十二：`ET_EXEC` 固定映射，真实来宾 init 引导成功（88 项，本机实测）
+
+- 新增 `MappedImage::map_fixed()`：用 `MAP_FIXED_NOREPLACE`（`0x100000`）在 `reserve_start`
+  请求映射；范围被占用就**失败**而不是替换别人的映射。`run_child` 遇到 `ET_EXEC` 自动走这条路。
+- `preflight` 的 `NeedsFixedMapping` 改为只在链接地址 `< 0x10000`（基址为 0、用户态不可映射）时才阻塞。
+- 新增 2 项测试：固定映射确实落在链接地址；目标范围被占用时**报错而非覆盖**。合计 **88 项全绿**。
+- **实测真实来宾 `rootfs/init`**（Android 8.1，`ET_EXEC`，链接地址 `0x400000`）：
+  ```
+  check: loadable
+  outcome: Signaled(11) fault: signal=11 address=0x200000 pc=0x4ba430
+    pc is at file offset 0xba430
+  ```
+  `pc` 首次**落在镜像自己的地址范围内**（上一轮还是 `0x5f` 这种垃圾值），
+  说明引导成功、来宾 `init` 的代码真的在执行；随后碰未映射的 `0x200000` 而崩——
+  完整启动 `init` 还需要 `/dev`、`/proc`、mount 等环境，属于运行时范畴。
+- 仍未实现：`DT_RELR`/`DT_ANDROID_REL` 解析（`toybox` 等现代系统二进制需要）。
+
 ## 阶段四十一：第一个真实 bionic 程序跑通（86 项，本机实测）
 
 - 换可控对象：用 Termux clang 编一个**动态链接 bionic** 的最小程序（`hello`，6 个导入），

@@ -102,12 +102,36 @@ impl MappedImage {
         MappedImage::map_with_bridge(elf, page_size, relocate, None)
     }
 
+    /// Map the image at the addresses it was linked at.
+    ///
+    /// A position-dependent (`ET_EXEC`) image stores absolute pointers with no
+    /// relocations to fix them, so it only works at its link address. The mapping uses
+    /// `MAP_FIXED_NOREPLACE`: if anything already occupies the range the call fails
+    /// instead of silently replacing someone else's mapping.
+    pub fn map_fixed(
+        elf: &Elf<'_>,
+        page_size: u64,
+        bridge: Option<&SymbolTable>,
+    ) -> Result<MappedImage, ExecError> {
+        MappedImage::map_with_bridge_at(elf, page_size, true, bridge, true)
+    }
+
     /// Map the image, relocate it, and patch its jump slots from `bridge`.
     pub fn map_with_bridge(
         elf: &Elf<'_>,
         page_size: u64,
         relocate: bool,
         bridge: Option<&SymbolTable>,
+    ) -> Result<MappedImage, ExecError> {
+        MappedImage::map_with_bridge_at(elf, page_size, relocate, bridge, false)
+    }
+
+    fn map_with_bridge_at(
+        elf: &Elf<'_>,
+        page_size: u64,
+        relocate: bool,
+        bridge: Option<&SymbolTable>,
+        fixed: bool,
     ) -> Result<MappedImage, ExecError> {
         let mapping = plan(&elf.segments, elf.entry, page_size)?;
         let span = mapping
@@ -122,16 +146,17 @@ impl MappedImage {
 
         // One anonymous reservation for the whole span; the kernel may place it
         // anywhere, which is why the bias is computed afterwards.
-        let raw = unsafe {
-            libc::mmap(
-                std::ptr::null_mut(),
-                len,
-                libc::PROT_NONE,
-                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
-                -1,
-                0,
-            )
+        // MAP_FIXED_NOREPLACE is 0x100000 on Linux and Android; the libc crate does not
+        // expose it on every target this crate builds for.
+        const MAP_FIXED_NOREPLACE: i32 = 0x10_0000;
+        let mut flags = libc::MAP_PRIVATE | libc::MAP_ANONYMOUS;
+        let requested = if fixed {
+            flags |= MAP_FIXED_NOREPLACE;
+            mapping.reserve_start as usize as *mut libc::c_void
+        } else {
+            std::ptr::null_mut()
         };
+        let raw = unsafe { libc::mmap(requested, len, libc::PROT_NONE, flags, -1, 0) };
         if raw == libc::MAP_FAILED {
             return Err(ExecError::Allocate {
                 size: len,

@@ -158,7 +158,11 @@ pub fn preflight(elf: &Elf<'_>, bridge: &SymbolTable, page_size: u64) -> Preflig
             .map(|segment| segment.vaddr)
             .min()
             .unwrap_or(0);
-        blockers.push(Blocker::NeedsFixedMapping { low });
+        // The loader maps position-dependent images at their link address. Address zero
+        // is never mappable from user space, so an image based there cannot work.
+        if low < 0x1_0000 {
+            blockers.push(Blocker::NeedsFixedMapping { low });
+        }
     }
     if !elf.relocation_tables.has_readable_table()
         && (elf.relocation_tables.android_packed || elf.relocation_tables.relr)

@@ -475,7 +475,13 @@ fn run_child(
     envp: &[&str],
 ) -> Result<(), ()> {
     let elf = Elf::parse(bytes).map_err(|_| ())?;
-    let image = MappedImage::map_with_bridge(&elf, page_size, true, Some(bridge)).map_err(|_| ())?;
+    // A position-dependent image must land at its link address; anything else leaves its
+    // absolute pointers pointing at the wrong place.
+    let image = if elf.elf_type == crate::elf::ElfType::Exec {
+        MappedImage::map_fixed(&elf, page_size, Some(bridge)).map_err(|_| ())?
+    } else {
+        MappedImage::map_with_bridge(&elf, page_size, true, Some(bridge)).map_err(|_| ())?
+    };
     let image = std::mem::ManuallyDrop::new(image);
 
     // Where the image landed relative to the addresses it was linked at. The guest's

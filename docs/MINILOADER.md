@@ -246,3 +246,36 @@ outcome: Exited(7)                 <-- 来宾自己的退出码
 
 `preflight` 现在多了两个阻塞项 `NeedsFixedMapping` 与 `UnreadableRelocations`，
 不再是「莫名 SIGSEGV」，而是明确的「这个镜像我还没法装，因为 …」。
+
+## `ET_EXEC` 固定地址映射（本轮）
+
+真实来宾 `init` 是 `ET_EXEC`：它的绝对指针在文件里已经是最终地址，没有任何重定位能补救，
+所以**必须映射到链接地址**。新增 `MappedImage::map_fixed()`，用 `MAP_FIXED_NOREPLACE`
+（`0x100000`）请求 `reserve_start`：
+
+- 范围已被占用时**请求失败**，不会悄悄替换别人的映射（有测试覆盖）；
+- `preflight` 只在链接地址低到不可映射（`< 0x10000`，即基址为 0 的镜像）时才判阻塞。
+
+实测：
+
+```
+$ miniloader-plan guestrom/init 4096 --check
+check: loadable
+
+$ cargo run --example runinit -- guestrom/init
+outcome: Signaled(11) fault: signal=11 address=0x200000 pc=0x4ba430 ...
+  pc is at file offset 0xba430
+```
+
+`pc=0x4ba430` **落在镜像自己的地址范围里**（上一轮是 `0x5f` 这种垃圾值），说明引导成功、
+真实 Android 8.1 `init` 的代码真的在跑；它随后去碰了 `0x200000` 这个未映射地址——
+完整启动一个 `init` 还需要 `/dev`、`/proc`、mount 等环境，这属于运行时该做的事。
+
+## 当前三种真实镜像的状态
+
+| 目标 | preflight | 实际运行 |
+|---|---|---|
+| 手写 guests | loadable | **跑通**（退出码/输出/argv 都对） |
+| 动态链接 bionic `hello` | loadable | **跑通**（打印 + `Exited(7)`） |
+| 真实来宾 `rootfs/init`（ET_EXEC） | loadable | 引导成功，跑到自身代码后因缺少运行环境而崩 |
+| `/system/bin/toybox`（`DT_RELR`） | blocked | 未实现 `DT_RELR` 解析 |

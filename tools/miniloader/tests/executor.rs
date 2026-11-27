@@ -123,3 +123,53 @@ fn drop_unmaps_the_span() {
         assert!(image.read(image.segments()[0].address, 0x40).is_some());
     }
 }
+#[test]
+fn a_position_dependent_image_maps_at_its_link_address() {
+    // A high, almost certainly free link address, so the test does not depend on what
+    // the harness has mapped.
+    const LINK: u64 = 0x1_0000_0000;
+    let bytes = synth_elf(LINK + 0x100, &[(0x100, LINK, 0x200, 0x400, PT_F_R | PT_F_X)]);
+    let elf = Elf::parse(&bytes).expect("parse");
+    // Mark it position dependent: the loader must then honour the link address.
+    let mut bytes = bytes;
+    bytes[0x10..0x12].copy_from_slice(&2u16.to_le_bytes());
+    let elf = Elf::parse(&bytes).expect("parse");
+    assert_eq!(elf.elf_type, miniloader::elf::ElfType::Exec);
+
+    let image = MappedImage::map_fixed(&elf, PAGE, None).expect("fixed map");
+    assert_eq!(image.entry(), LINK + 0x100, "entry is at its link address");
+    assert_eq!(
+        image.segments()[0].address, LINK,
+        "the first segment starts at the link address"
+    );
+    drop(image);
+}
+
+#[test]
+fn a_taken_range_makes_the_fixed_map_fail_instead_of_replacing_it() {
+    // Occupy a page, then ask for a fixed mapping at that exact address: the loader must
+    // refuse rather than silently replace someone else's mapping.
+    let page = unsafe {
+        libc::mmap(
+            std::ptr::null_mut(),
+            PAGE as usize,
+            libc::PROT_NONE,
+            libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+            -1,
+            0,
+        )
+    };
+    assert_ne!(page, libc::MAP_FAILED);
+    let address = page as u64;
+
+    let mut bytes = synth_elf(address + 0x100, &[(0x100, address, 0x200, 0x400, PT_F_R | PT_F_X)]);
+    bytes[0x10..0x12].copy_from_slice(&2u16.to_le_bytes());
+    let elf = Elf::parse(&bytes).expect("parse");
+    match MappedImage::map_fixed(&elf, PAGE, None) {
+        Err(_) => {}
+        Ok(_) => panic!("a fixed mapping over an occupied range must fail"),
+    }
+    unsafe {
+        libc::munmap(page, PAGE as usize);
+    }
+}
