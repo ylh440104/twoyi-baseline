@@ -139,6 +139,26 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段二十二：R_AARCH64_RELATIVE 重定位（39 项单测）
+
+- 新增 `tools/miniloader/src/reloc.rs`：
+  - `relative_relocations()` 解析节头表里的 `SHT_RELA` 段（`.rela.dyn`/`.rela.plt`），
+    只保留 type `1027`（`R_AARCH64_RELATIVE`），其它类型（如 `JUMP_SLOT` 1026）忽略；
+  - `apply()` 在 `bias + r_offset` 处写入 `bias + r_addend`，写入被拒绝时报错；
+  - 没有节头表（被 strip 的镜像）时返回空列表，不视为错误。
+- `MappedImage::map()` 改为两趟：先逐段可写并拷贝，**再应用重定位**，**最后**统一 `mprotect`
+  收窄权限——这正是官方 loader 的顺序（重定位必须发生在可写阶段）。
+  新增 `map_with_relocations(elf, page, false)` 用于对照。
+- `tests/reloc.rs` 7 项：解析 `.rela.dyn`、忽略非 relative 类型、无节头表返回空、
+  `bias + addend`（含负 addend）计算、写入被拒、**映射后槽位确实持有 `bias + addend`**、
+  跳过重定位时槽位保持原样。
+- CI 运行 45931123630 全绿：**39 项**（reloc 7 + executor 4 + image 4 + plan 8 + proto 6 + handshake 5 + resolver 5）。
+  真实 AArch64 二进制映射结果不变：`mapped: entry=0x7f59d997610c`、`entry bytes: ff 43 00 d1`；
+  该二进制没有动态重定位（`relocations: 0`），符合它是 `-static -nostdlib` 的事实。
+- 首次失败（45930673459）是个真 bug：我用 `r_offset` 直接加到**映射基址**上，而 `r_offset` 是
+  链接期虚拟地址，必须减去**预留跨度起点**；`the_mapped_image_holds_rebased_pointers` 把它抓了出来。
+- 边界：只实现 `R_AARCH64_RELATIVE`；`JUMP_SLOT`、符号重定位、TLS 都还没做。
+
 ## 阶段二十一：真的 mmap（32 项单测 + 真实 ELF 映射成功）
 
 - 新增 `tools/miniloader/src/executor.rs`：`MappedImage::map(elf, page)` 走官方 loader 同一套序列——
