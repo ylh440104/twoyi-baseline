@@ -355,10 +355,22 @@ private fun PhoneSurface(state: TwinState) {
             }
         } else {
             SectionTitle(stringResource(R.string.twin_agent_name))
-            Text(
-                text = stringResource(R.string.twin_phone_fullscreen),
-                style = MaterialTheme.typography.bodyMedium
-            )
+            Button(
+                enabled = state.phoneReady && !state.busy,
+                onClick = {
+                    state.error = TwinRuntime.startPhone(context)
+                }
+            ) { Text(stringResource(R.string.twin_phone_fullscreen)) }
+            if (!state.phoneReady) {
+                Text(
+                    text = stringResource(R.string.twin_boot_preparing),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
+        val reason = state.error
+        if (reason != null) {
+            Text(text = reason, style = MaterialTheme.typography.bodySmall)
         }
     }
 }

@@ -2,10 +2,12 @@
 package io.twoyi.ui.twin
 
 import android.content.Context
+import android.content.Intent
 import io.twoyi.GuestInstanceGate
 import io.twoyi.GuestInstanceInstaller
 import io.twoyi.GuestInstanceManager
 import io.twoyi.GuestInstanceRegistry
+import io.twoyi.Render2Activity
 import java.io.File
 
 /**
@@ -72,6 +74,45 @@ object TwinRuntime {
             phoneState(app)
         } catch (failure: Exception) {
             PhoneState(false, false, false, failure.message ?: failure.javaClass.simpleName)
+        }
+    }
+
+    /**
+     * Make [id] the active instance and open the guest window.
+     *
+     * The guest process resolves its slot from the active instance, so activation
+     * has to happen before anything starts. `requireStartable` refuses a slot
+     * without a bootable ROM, which is what keeps a tap on an uninstalled phone
+     * from reaching `init` on an empty tree.
+     *
+     * @return null on success, otherwise a user-facing reason
+     */
+    fun startPhone(context: Context): String? {
+        val app = context.applicationContext
+        val dataDir = app.dataDir
+        val id = instanceId(app)
+        val registry = try {
+            GuestInstanceRegistry.load(GuestInstanceRegistry.defaultPath(dataDir.toPath()))
+        } catch (failure: Exception) {
+            return failure.message ?: failure.javaClass.simpleName
+        }
+        try {
+            GuestInstanceGate.requireStartable(dataDir, registry, id)
+        } catch (refused: IllegalStateException) {
+            return refused.message
+        } catch (unknown: IllegalArgumentException) {
+            return unknown.message
+        }
+        return try {
+            registry.activate(id)
+            registry.save()
+            app.startActivity(
+                Intent(app, Render2Activity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            )
+            null
+        } catch (failure: Exception) {
+            failure.message ?: failure.javaClass.simpleName
         }
     }
 
