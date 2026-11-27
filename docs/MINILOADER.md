@@ -130,3 +130,34 @@ Termux 本身就是 Android + bionic + aarch64，装了 Rust 1.100 后可在**�
 
 仍缺：这些库是交给系统的 `dlopen` 打开的，我们**没有实现自己的 `DT_NEEDED` 映射器**
 （真机上 bionic 的 linker 替我们做了这件事）；以及 TLS、`dlopen` 语义、跳转执行。
+
+## 跳转执行（本轮打通）
+
+`run::run()` 把镜像真正跑起来，**在 fork 出的子进程里**（真 loader 也是这么起进程的：
+来宾的 `exit` 只结束子进程，父进程能如实报告退出码，而且崩掉的镜像不会带走加载器）。
+
+子进程里的顺序是：映射镜像（含重定位与跳转槽）→ 用**实际映射偏置**生成 `argv/envp/auxv`
+（auxv 里全是镜像内地址，偏置不知道就全错）→ 把栈镜像拷到 mmap 出来的 1 MiB 栈区、
+用 `apply_base` 把字符串指针变成绝对地址 → `mov sp, x9; blr x10`。
+
+**本机 bionic aarch64 实测（`cargo test`，5 项）**：
+
+| 用例 | 结果 |
+|---|---|
+| 手写 AArch64 来宾 `write("hi\n")` + `exit(42)` | `Exited(42)`，且 `hi` 出现在输出里 |
+| 来宾读 `[sp]` 取 `argc` 并以此为退出码 | `Exited(3)` —— **初始栈确实是加载器搭的那个** |
+| 来宾执行 `brk #7` | `Signaled(5)` (SIGTRAP)，崩溃被如实上报 |
+| 传非 ELF | `Unloadable`，**不 fork**，进程不受影响 |
+| 把 stdout 接到管道 | 管道里读到 `captured\n`，来宾的 `write` 生效 |
+
+## 真实二进制跳到哪一步了
+
+| 目标 | 结果 |
+|---|---|
+| 手写最小来宾 | **跑通**（见上表） |
+| `/system/bin/toybox` | 依赖 `8/8` 打开、313 个导入 `0 unresolved`、镜像映射成功，但**跳转后 SIGSEGV** |
+| 真实来宾 `rootfs/init` | 映射成功（静态、0 导入），跳转后 **SIGSEGV** |
+
+两者都倒在同一个地方：**没有建立 TLS**。bionic 的程序（静态或动态）在 `__libc_init` 里
+要用 `TPIDR_EL0` 指向线程控制块，从 `PT_TLS` 复制初始镜像；我们跳过去时 `TPIDR_EL0` 是垃圾值，
+第一条真正的 libc 代码就崩。这就是下一个要实现的东西。

@@ -139,6 +139,22 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段三十八：跳转执行打通（81 项，本机 bionic 实测）
+
+- 新增 `tools/miniloader/src/run.rs`：`run_guest()` 在 **fork 出的子进程**里映射镜像、
+  用**实际映射偏置**生成 auxv、把栈镜像写到 mmap 的 1 MiB 栈区（`apply_base` 把字符串指针
+  绝对化）、`mov sp, x9; blr x10` 跳入；父进程 `waitpid` 并把状态翻译成 `Exited/Signaled`。
+  在子进程里跑子进程，来宾的 `exit` 只结束它，崩掉的镜像也带不走加载器。
+- 顺带修掉一个真 bug：auxv 原本在 fork **之前**用偏置 0 生成，于是 `AT_PHDR`/`AT_ENTRY` 全是错的；
+  现在在映射之后按 `image.entry() - elf.entry` 算偏置再生。
+- `tests/run.rs` 5 项（`cfg(target_arch = "aarch64")`，用 `cc` 现场汇编手写 AArch64 来宾）：
+  `write("hi\n")+exit(42)` → `Exited(42)`；读 `[sp]` 取 argc → `Exited(3)`；`brk #7` → `Signaled(5)`；
+  非 ELF 不 fork 直接 `Unloadable`；stdout 接管道能读到 `captured\n`。
+- **本机 `cargo test` 合计 81 项全过。**
+- 真实二进制：`toybox` 依赖 `8/8`、313 导入 `0 unresolved`、映射成功，但跳转后 **SIGSEGV**；
+  真实来宾 `init` 同样 SIGSEGV。**共同原因：没有建立 TLS**（bionic 在 `__libc_init` 里要用
+  `TPIDR_EL0` 指向线程控制块）——这是下一个要实现的。
+
 ## 阶段三十七：真正加载依赖库并合并符号（76 项，本机 bionic 实测）
 
 - `SymbolTable` 增加 `open_libraries()` / `resolve_names()` / `has_library()` / `mark_opened()`，
