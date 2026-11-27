@@ -96,6 +96,9 @@ jobs:
           grep -q 'reserve: 0x' "$RUNNER_TEMP/plan-aarch64.txt"
           grep -q 'map 0x' "$RUNNER_TEMP/plan-aarch64.txt"
           grep -q 'initial stack: ' "$RUNNER_TEMP/plan-aarch64.txt"
+          # The dry-run image must reproduce the ELF's own entry and copy the bytes.
+          grep -q 'image: base=0x' "$RUNNER_TEMP/plan-aarch64.txt"
+          grep -qE 'entry_offset=Some\([0-9]+\)' "$RUNNER_TEMP/plan-aarch64.txt"
           # The executable mapping must carry PROT_EXEC (bit 4) plus PROT_READ (bit 1).
           awk '/^map /{ if ($0 ~ /prot=5/ || $0 ~ /prot=7/) found=1 } END{ exit found ? 0 : 1 }' \
             "$RUNNER_TEMP/plan-aarch64.txt"

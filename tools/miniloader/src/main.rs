@@ -28,16 +28,16 @@ fn main() {
             std::process::exit(1);
         }
     };
-    let image = match Elf::parse(&bytes) {
+    let parsed = match Elf::parse(&bytes) {
         Ok(value) => value,
         Err(error) => {
             eprintln!("cannot parse {path}: {error:?}");
             std::process::exit(1);
         }
     };
-    println!("entry: 0x{:x}", image.entry);
-    println!("entry executable: {}", image.entry_is_executable());
-    for (index, segment) in image.segments.iter().enumerate() {
+    println!("entry: 0x{:x}", parsed.entry);
+    println!("entry executable: {}", parsed.entry_is_executable());
+    for (index, segment) in parsed.segments.iter().enumerate() {
         println!(
             "seg[{index}] vaddr=0x{:x} filesz={} memsz={} bss={} flags=0x{:x}",
             segment.vaddr,
@@ -48,7 +48,7 @@ fn main() {
         );
     }
 
-    let mapping = match plan(&image.segments, image.entry, page_size) {
+    let mapping = match plan(&parsed.segments, parsed.entry, page_size) {
         Ok(value) => value,
         Err(error) => {
             eprintln!("cannot plan mapping: {error:?}");
@@ -71,6 +71,17 @@ fn main() {
             map.bss_len,
             map.prot
         );
+    }
+
+    let image = miniloader::GuestImage::load(&parsed, page_size);
+    match image {
+        Ok(dry_run) => println!(
+            "image: base=0x{:x} arena={} bytes entry_offset={:?}",
+            dry_run.base_vaddr(),
+            dry_run.arena().len(),
+            dry_run.entry_offset()
+        ),
+        Err(error) => println!("image: not loadable ({error:?})"),
     }
 
     let built = build_stack(

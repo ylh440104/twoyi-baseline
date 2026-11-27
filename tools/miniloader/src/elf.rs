@@ -164,6 +164,11 @@ impl<'a> Elf<'a> {
         &self.data[start..end]
     }
 
+    /// Same as [`Elf::segment_bytes`] but tolerant of a bad range.
+    pub fn segment_bytes_at(&self, segment: &Segment) -> Option<&'a [u8]> {
+        segment.file_bytes(self.data)
+    }
+
     /// True when `entry` lands inside an executable segment.
     pub fn entry_is_executable(&self) -> bool {
         self.segments

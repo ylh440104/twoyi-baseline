@@ -11,6 +11,7 @@
 | `tools/miniloader/src/stack.rs` | 构造来宾初始栈镜像：`argc` / `argv` / `envp` / `auxv`（`AT_NULL` 结尾）/ 字符串区，16 字节对齐与上限 | `0x115a44`（来宾初始栈）、错误串 `guest initial stack is too large` |
 | `tools/miniloader/src/proto.rs` | `B1F2`（32B 握手）与 `TBD1`（32B 头 + ≤0xC00 负载）编解码与校验 | `LOADER_PROTOCOL.md` 的 `FUN_00116520` / `FUN_00116df4` |
 | `tools/miniloader/src/broker.rs` | 通道两端：`HandshakeClient`（attach → exec）与 `Broker`（应答握手、校验 `TBD1`、回执负载长度），传输可为任意 `Read+Write` | `FUN_00116520` / `FUN_00116df4` |
+| `tools/miniloader/src/image.rs` | 干跑装载：按映射计划把段摆进一块 arena，复制文件字节、bss 清零、给出 entry 在 arena 内的偏移 | `LOADER_RE.md` 的 `0x114560`（mmap 段映射） |
 | `tools/miniloader/src/resolver.rs` | 解析器信封：定长 360 请求 / 严格 988 应答 / 一问一答一连接 | `HAL_PROTOCOL.md` §5（Java 层实证） |
 | `tools/miniloader/src/main.rs` | 诊断用 CLI：打印段、预留区间、映射表、初始栈大小 | —— |
 
@@ -56,7 +57,7 @@
 - `a_wrong_sized_response_is_refused` / `an_oversized_response_is_also_refused`：987 / 989 字节被拒
 - `lengths_match_the_java_layer`：`360` / `988` 常量钉死
 
-合计 24 项。
+`image`（`tests/image.rs`，4 项）+ 合计 28 项。
 
 ## CI
 

@@ -8,12 +8,14 @@
 
 pub mod broker;
 pub mod elf;
+pub mod image;
 pub mod map;
 pub mod proto;
 pub mod resolver;
 pub mod stack;
 
 pub use elf::{Elf, ElfError, Segment};
+pub use image::{GuestImage, ImageError, Placed};
 pub use map::{plan, MapError, MappingPlan};
 pub use broker::{Broker, ChannelError, HandshakeClient};
 pub use proto::{PathError, ProtoError, Tbd1, Tbd1Reply, B1F2};
