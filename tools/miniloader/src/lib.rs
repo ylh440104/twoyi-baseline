@@ -18,6 +18,7 @@ pub mod reloc;
 pub mod resolver;
 pub mod symbols;
 pub mod stack;
+pub mod transport;
 
 pub use elf::{Elf, ElfError, Segment};
 pub use image::{GuestImage, ImageError, Placed};
