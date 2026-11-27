@@ -139,6 +139,23 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段二十三：动态符号与跳转槽（45 项单测）
+
+- 新增 `tools/miniloader/src/symbols.rs`：
+  - `dynamic_symbols()`：读 `.dynsym` + 其 `sh_link` 指向的 `.dynstr`，给出名字、值、大小与
+    `undefined`（`SHN_UNDEF`）标记——来宾的外部导入就靠这个列表暴露出来；
+  - `jump_slots()`：读 `SHT_RELA` 里 type **1026**（`R_AARCH64_JUMP_SLOT`）的条目，
+    按 `r_info >> 32` 取符号、从 `.dynstr` 取名，得到「槽地址 → 需要解析的名字」；
+  - `apply_jump_slots()`：用调用方给的 `resolve(name)` 打补丁；**未解析的导入直接报错**，
+    而不是把槽填成 0 让来宾跳到空地址。
+- `tests/symbols.rs` 6 项，fixture 是手工构造的 `.dynstr` + `.dynsym` + `.rela.plt`（真实节布局）：
+  `reads_dynamic_symbols`、`reads_jump_slots_with_their_names`、`patches_slots_through_the_resolver`、
+  `an_unresolved_import_is_reported`、`a_rejected_write_is_reported`、`a_symbol_free_image_reads_as_empty`。
+- CI 运行 45931681661 全绿：**45 项**（symbols 6 + reloc 7 + executor 4 + image 4 + plan 8 +
+  proto 6 + handshake 5 + resolver 5）。host 回归 45931681701 也绿。
+- 边界：**解析器本身没实现**——宿主 libc bridge 的符号表还没有，`resolve` 目前只能由调用方注入；
+  而且 executor 尚未在映射流程里调用 `apply_jump_slots`（下一步接）。
+
 ## 阶段二十二：R_AARCH64_RELATIVE 重定位（39 项单测）
 
 - 新增 `tools/miniloader/src/reloc.rs`：
