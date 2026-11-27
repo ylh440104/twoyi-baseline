@@ -139,6 +139,22 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段三轮（续三）：确认回合（构建通过）
+
+- 会话消息从 `Pair<String, Boolean>` 改成三种 `Line`：`User`、`Twin`、`Need`。
+  `Need` 是最新版区别于普通聊天的核心交互：先说清后果，再等用户回答。
+- 确认卡片的行为（文案全部来自最新版同名键）：
+  - 标题用 `twin_need_tap_question`（带 `%1$s`），下面按动作类型显示后果：
+    删除 → `twin_need_consequence_delete`、付款 → `_pay`、发送/发布 → `_send`；
+  - 三个出口：同意（`twin_need_accept` → 记为 `twin_need_row_accepted`）、
+    拒绝（`twin_need_reject` → `twin_need_row_declined`）、
+    「去手机」交给用户处理（`twin_need_go_phone` → 打开来宾 → `twin_need_row_handled`）；
+  - 有未答的确认时，输入区上方显示 `twin_need_waiting`。
+- CI：45921932368 构建通过、45921932420 host 回归通过。首次失败（45921184948）是
+  在 `onClick` 里调 `stringResource(...)` —— Compose 不允许；改为把模板 id 与参数存进 `Line.Need`，
+  在卡片里格式化后通过。
+- 边界：**触发确认的是本地关键词判断**（delete/pay/send 及其中文），不是模型；真实行为要等模型接入。
+
 ## 阶段三轮（续二）：设置页与记忆页（构建通过）
 
 - 新增两个界面，文案取自最新版同名键（中英各 57 条新增，资源总数 187 / 184）：
