@@ -139,6 +139,32 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段二十六：装载前判定 preflight（59 项单测）
+
+- 新增 `tools/miniloader/src/preflight.rs`：把所有「装载前就知道的事」汇成一个判定——
+  段布局与预留跨度、`R_AARCH64_RELATIVE` 数量、导入清单（强/弱 + 宿主能否提供）、
+  以及入口是否落在可执行段。`Preflight::blockers` 逐条给出**可读原因**
+  （`required host libc bridge symbol is unavailable: malloc` 等），`reason()` 拼成一行。
+- 判定规则与真实动态链接器一致：**强导入缺失 → 阻塞**；**弱导入缺失 → 不阻塞**（会成为 0）。
+- CLI 新增 `--check`：打印 `check: loadable|blocked` 与 `segments/reserved/relocations/imports`，
+  被阻塞时逐条打印 `check blocker:`，并以状态码 3 退出。
+- `tests/preflight.rs` 6 项：导入全部可服务即可装载、强导入缺失被阻塞、弱导入缺失不阻塞、
+  入口在可执行段外被阻塞、重复导入只报一次、绑定分类可知。
+- CI 全绿（run 45936286623，**59 项**）：真实二进制实测两例——
+  ```
+  check: loadable
+  check: segments=1 reserved=4096 relocations=0 imports=0        # -static -nostdlib
+  check: loadable
+  check: segments=2 reserved=73728 relocations=4 imports=8        # 动态链接，4 条 RELATIVE、8 个导入
+  ```
+- 期间被 CI 抓出两个我自己的错：
+  1. 测试 fixture 的段只给了 `R|W` 没有 `X`，preflight 正确地把它判为「入口不可执行」——
+     是 fixture 错了，不是判定错了（run 45935298427）；
+  2. `--check` 只拿 `KNOWN_REQUIRED` 填桥，导致**本可装载**的动态程序被判 blocked
+     （run 45935773573 输出 6 条 missing）。改为用**来宾自己声明的导入名**去问桥后，
+     同一程序变成 `check: loadable`（run 45936286623）。
+- 边界：判定用的是**宿主的 glibc 符号**，真机上要换成 bionic；仍未在设备上跑过。
+
 ## 阶段二十五：真实 aarch64 动态导入 + 弱符号修正（53 项单测）
 
 - CLI 新增导入报告：对给的 ELF 列出 `JUMP_SLOT` 数量、去重名字数、本宿主能提供几个，
