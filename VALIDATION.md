@@ -139,6 +139,26 @@
 - 新版本 `baseline-11260958`：https://github.com/ylh440104/twoyi-baseline/releases/tag/baseline-11260958 ，应用 APK 211594589 字节，SHA-256 `53945f7ce36fa57836482a2a0a27f367d18a0f60a402cde2df11f8de2d435341`（与打包报告一致）。
 - 这些是**降低风险**，不是根因修复；仍需真机崩溃文件确认。
 
+## 阶段二第九轮：用真实 aarch64 ELF 验证映射计划（CI 通过）
+
+- 之前 `miniloader-plan` 只在**合成字节**和一次「x86 二进制被干净拒绝」上验证过，
+  等于没跑过真正的 AArch64 输入。本轮补上：CI 里用 `gcc-aarch64-linux-gnu`
+  编译一个 freestanding `_start` 程序（`-nostdlib -static`），再让规划器处理它。
+- 运行 45927604557 的实测输出：
+  ```
+  entry: 0x40010c
+  entry executable: true
+  seg[0] vaddr=0x400000 filesz=336 memsz=336 bss=0 flags=0x5
+  reserve: 0x400000..0x401000 (4096 bytes, page 4096)
+  map 0x400000..0x401000 file=336 bss=0 prot=5
+  initial stack: 160 bytes
+  ```
+  `prot=5` = `PROT_READ|PROT_EXEC`，与 `flags=0x5`（`PF_R|PF_X`）一致；
+  预留区间按 4 KiB 页对齐；初始栈 160 字节且通过 16 字节对齐检查。
+- 断言写在 workflow 里（`entry executable: true`、`reserve:`、`map 0x`、`prot=5/7`、`initial stack:`），
+  任何一条不满足就红。
+- 边界：这只证明**解析与规划**正确，没有真正 `mmap`、没有跳转、没有握手。
+
 ## 阶段三轮（续八）：来宾相位显示与「复用已运行会话」（构建通过）
 
 - `TwinRuntime` 新增 `guestPhase()`：把 `TwoyiStatusManager.phase()` 的
