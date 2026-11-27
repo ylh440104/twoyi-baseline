@@ -196,7 +196,7 @@ public final class GuestSelfCheck {
             lines.add("loader: native check unavailable (Java header check only)");
             return 0;
         }
-        File rootfs = new File(app.getDataDir(), "rootfs");
+        File rootfs = new File(io.twoyi.utils.RomManager.getSlotBaseDir(app), "rootfs");
         String verdict = GuestLoaderCheck.askForInit(rootfs);
         if (verdict == null) {
             lines.add("loader: no guest installed yet");

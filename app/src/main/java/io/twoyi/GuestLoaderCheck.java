@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: MPL-2.0 */
 package io.twoyi;
 
+import java.io.File;
+
 /**
  * The guest image check answered by the loader core itself.
  *
