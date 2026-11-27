@@ -140,7 +140,14 @@ fn main() {
         let names: Vec<&str> = miniloader::KNOWN_REQUIRED.to_vec();
         table.from_current_process(&names);
         let verdict = miniloader::preflight::preflight(&parsed, &table, page_size);
-        println!("check: {}", if verdict.is_loadable() { "loadable" } else { "blocked" });
+        println!(
+            "check: {}",
+            if verdict.is_loadable() {
+                "loadable"
+            } else {
+                "blocked"
+            }
+        );
         println!(
             "check: segments={} reserved={} relocations={} imports={}",
             verdict.segments,

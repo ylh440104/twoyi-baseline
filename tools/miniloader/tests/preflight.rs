@@ -2,7 +2,7 @@
 //! Preflight tests: the verdict for good, weak-only and broken images.
 
 use miniloader::bridge::SymbolTable;
-use miniloader::elf::{Elf, PT_F_R, PT_F_W};
+use miniloader::elf::{Elf, PT_F_R, PT_F_W, PT_F_X};
 use miniloader::preflight::{preflight, Blocker};
 use miniloader::symbols::R_AARCH64_JUMP_SLOT;
 
@@ -50,7 +50,7 @@ fn elf_with_imports(imports: &[(&str, bool)]) -> Vec<u8> {
 
     let ph = phoff;
     out[ph..ph + 4].copy_from_slice(&1u32.to_le_bytes());
-    out[ph + 4..ph + 8].copy_from_slice(&(PT_F_R | PT_F_W).to_le_bytes());
+    out[ph + 4..ph + 8].copy_from_slice(&(PT_F_R | PT_F_W | PT_F_X).to_le_bytes());
     out[ph + 8..ph + 16].copy_from_slice(&(payload_offset as u64).to_le_bytes());
     out[ph + 16..ph + 24].copy_from_slice(&0x2000u64.to_le_bytes());
     out[ph + 32..ph + 40].copy_from_slice(&(payload_size as u64).to_le_bytes());
@@ -153,10 +153,8 @@ fn a_missing_weak_import_does_not_block() {
 
 #[test]
 fn an_entry_outside_executable_segments_blocks() {
-    // The only segment is writable but not executable, so the entry cannot run.
+    // Push the entry outside the (executable) segment so it cannot run.
     let mut bytes = elf_with_imports(&[]);
-    // Clear PT_F_X if it were set; here flags are R|W already, so make the entry
-    // point outside the segment instead.
     bytes[0x18..0x20].copy_from_slice(&0x9000u64.to_le_bytes());
     let elf = Elf::parse(&bytes).expect("parse");
     let verdict = preflight(&elf, &SymbolTable::new(), PAGE);
